@@ -727,24 +727,386 @@ async function createUpcomingMatch(){
   alert(`✅ "${name}" created! Predictions are now open.`);
 }
 
+let scInputTab = 'manual'; // 'manual' | 'text' | 'ai'
+
 function vAddScorecard(){
   const m=S.matches.find(x=>x.id===scorecardMatchId);
-  if(!m) return`<div class="empty"><p>Match not found.</p></div>`;
-  return`<div class="fb mb16"><h1>Upload Scorecard</h1><button class="btn btn-secondary btn-sm" onclick="addView='menu';render()">← Back</button></div>
-  <div class="card">
-    <div class="alert al-success mb16">📅 <strong>${m.name}</strong> · ${m.date||''}</div>
-    <p class="muted small mb16">Paste Cricbuzz text OR upload <strong>2 screenshots</strong> (one per innings).</p>
-    <div class="alert al-warn mb12">⚠️ Super over stats are NOT counted.</div>
-    <div class="fg"><label>Paste Scorecard Text (both innings)</label>
-      <textarea id="sct" placeholder="Paste full scorecard including both innings batting & bowling tables..."></textarea></div>
-    <div class="sep"></div>
-    <p class="small muted mb12">OR upload screenshots:</p>
-    <div class="fr">
-      <div class="fg"><label>Innings 1 Screenshot</label><div class="upload-zone" onclick="document.getElementById('imgup1').click()"><div id="upv1">📷 Innings 1</div><input type="file" id="imgup1" accept="image/*" style="display:none" onchange="handleImg(this,1)" /></div></div>
-      <div class="fg"><label>Innings 2 Screenshot</label><div class="upload-zone" onclick="document.getElementById('imgup2').click()"><div id="upv2">📷 Innings 2</div><input type="file" id="imgup2" accept="image/*" style="display:none" onchange="handleImg(this,2)" /></div></div>
-    </div>
-    <button class="btn btn-primary mt12" onclick="doParseAI()"><span id="pbt">🤖 Parse with AI</span></button>
-  </div>`;
+  if(!m) return'<div class="empty"><p>Match not found.</p></div>';
+
+  // Collect all unique players across all fantasy teams' XIs
+  const allXIPlayers = [];
+  const seen = {};
+  for (const t of S.teams) {
+    for (const p of t.players) {
+      if (!seen[p.name]) {
+        seen[p.name] = true;
+        allXIPlayers.push({ name: p.name, iplTeam: p.iplTeam||'', role: p.role||'' });
+      }
+    }
+  }
+
+  return '<div class="fb mb16"><h1>Upload Scorecard</h1><button class="btn btn-secondary btn-sm" onclick="addView=\'menu\';render()">← Back</button></div>'+
+  '<div class="card mb12">'+
+    '<div class="alert al-success mb12">📅 <strong>'+m.name+'</strong> · '+(m.date||'')+'</div>'+
+    '<div class="alert al-warn mb8 small">⚠️ Super over stats are NOT counted.</div>'+
+    '<div class="stabs">'+
+      '<button class="stab '+(scInputTab==='manual'?'active':'')+'" onclick="scInputTab=\'manual\';render()">✏️ Manual Entry</button>'+
+      '<button class="stab '+(scInputTab==='text'?'active':'')+'" onclick="scInputTab=\'text\';render()">📋 Paste Text</button>'+
+      '<button class="stab '+(scInputTab==='ai'?'active':'')+'" onclick="scInputTab=\'ai\';render()">🤖 AI Parse</button>'+
+    '</div>'+
+  '</div>'+
+
+  // ── MANUAL ENTRY TAB ──
+  (scInputTab==='manual' ? (
+  '<div class="card mb12">'+
+    '<h2>Match Info</h2>'+
+    '<div class="fr mb12">'+
+      '<div class="fg"><label>Team 1</label><input id="me-team1" placeholder="e.g. MI" /></div>'+
+      '<div class="fg"><label>Team 2</label><input id="me-team2" placeholder="e.g. CSK" /></div>'+
+    '</div>'+
+    '<div class="fr">'+
+      '<div class="fg"><label>Winner</label><input id="me-winner" placeholder="e.g. MI" /></div>'+
+      '<div class="fg"><label>Man of the Match</label><input id="me-mom" placeholder="e.g. Virat Kohli" /></div>'+
+    '</div>'+
+  '</div>'+
+
+  '<div class="card mb12">'+
+    '<div class="fb mb12"><h2>🏏 Batting — Enter stats for players who batted</h2>'+
+      '<button class="btn btn-secondary btn-sm" onclick="addManualBatRow()">+ Add Row</button></div>'+
+    '<div class="alert al-info mb8 small">Only add rows for players who actually batted. Leave out DNB players.</div>'+
+    '<div class="tscroll"><table id="me-bat-table">'+
+      '<thead><tr><th>Player Name</th><th>Team</th><th>Runs</th><th>Balls</th><th>4s</th><th>6s</th><th>Not Out?</th><th>Dismissal</th><th></th></tr></thead>'+
+      '<tbody id="me-bat-body">'+
+        allXIPlayers.map(function(p,i){
+          return '<tr id="bat-row-'+i+'">'+
+            '<td><input value="'+p.name+'" class="me-bat-name" style="min-width:140px" /></td>'+
+            '<td><input value="'+(p.iplTeam||'')+'" class="me-bat-team" style="width:60px" /></td>'+
+            '<td><input type="number" value="0" class="me-bat-runs" style="width:55px" /></td>'+
+            '<td><input type="number" value="0" class="me-bat-balls" style="width:55px" /></td>'+
+            '<td><input type="number" value="0" class="me-bat-fours" style="width:45px" /></td>'+
+            '<td><input type="number" value="0" class="me-bat-sixes" style="width:45px" /></td>'+
+            '<td style="text-align:center"><input type="checkbox" class="me-bat-notout" style="width:auto" /></td>'+
+            '<td><input value="" class="me-bat-dismissal" placeholder="c X b Y" style="min-width:100px" /></td>'+
+            '<td><button class="btn btn-danger btn-xs" onclick="this.closest(\'tr\').remove()">✕</button></td>'+
+          '</tr>';
+        }).join('')+
+      '</tbody>'+
+    '</table></div>'+
+  '</div>'+
+
+  '<div class="card mb12">'+
+    '<div class="fb mb12"><h2>⚡ Bowling — Enter stats for players who bowled</h2>'+
+      '<button class="btn btn-secondary btn-sm" onclick="addManualBowlRow()">+ Add Row</button></div>'+
+    '<div class="tscroll"><table id="me-bowl-table">'+
+      '<thead><tr><th>Bowler Name</th><th>Team</th><th>Overs</th><th>Maidens</th><th>Runs</th><th>Wickets</th><th>W.Maiden</th><th>Hat-trick?</th><th></th></tr></thead>'+
+      '<tbody id="me-bowl-body"></tbody>'+
+    '</table></div>'+
+    '<p class="muted small mt8">Add rows for each bowler. Leave empty if no one bowled (unlikely!).</p>'+
+  '</div>'+
+
+  '<div class="card mb12">'+
+    '<div class="fb mb12"><h2>🧤 Fielding — Catches, stumpings, run outs</h2>'+
+      '<button class="btn btn-secondary btn-sm" onclick="addManualFieldRow()">+ Add Row</button></div>'+
+    '<div class="tscroll"><table id="me-field-table">'+
+      '<thead><tr><th>Player Name</th><th>Catches</th><th>Stumpings</th><th>Run Outs</th><th></th></tr></thead>'+
+      '<tbody id="me-field-body"></tbody>'+
+    '</table></div>'+
+    '<p class="muted small mt8">Only add players who took catches, stumpings, or effected run outs.</p>'+
+  '</div>'+
+
+  '<div class="card">'+
+    '<button class="btn btn-primary" onclick="submitManualScorecard()" style="font-size:15px;padding:10px 24px">✅ Build Scorecard & Continue to Scoring →</button>'+
+  '</div>'
+
+  ) : scInputTab==='text' ? (
+
+  // ── TEXT PARSE TAB ──
+  '<div class="card">'+
+    '<h2>Paste Cricbuzz / ESPNcricinfo Scorecard</h2>'+
+    '<div class="alert al-info mb12 small">Copy the full scorecard text from Cricbuzz (both innings). The parser will extract batting, bowling, and fielding data automatically.</div>'+
+    '<div class="fg"><label>Scorecard Text (both innings)</label>'+
+      '<textarea id="sct" placeholder="Paste the full scorecard here...\n\nExample format:\nRohit Sharma  c Rahul b Bumrah  45  30  6  2  150.00\nVirat Kohli  not out  82  53  8  3  154.72\n...\n\nBowling:\nJasprit Bumrah  4  1  25  2  6.25\n..." style="min-height:200px"></textarea></div>'+
+    '<div class="fr">'+
+      '<div class="fg"><label>Match Winner</label><input id="tp-winner" placeholder="e.g. MI" /></div>'+
+      '<div class="fg"><label>Man of the Match</label><input id="tp-mom" placeholder="e.g. Virat Kohli" /></div>'+
+    '</div>'+
+    '<button class="btn btn-primary mt8" onclick="doParseText()">📋 Parse Text → Review</button>'+
+  '</div>'
+
+  ) : (
+
+  // ── AI PARSE TAB ──
+  '<div class="card">'+
+    '<div class="alert al-warn mb12">⚠️ AI parsing requires a working Cloudflare Worker → OpenRouter pipeline. Use Manual Entry if this fails.</div>'+
+    '<div class="fg"><label>Paste Scorecard Text (optional, helps AI)</label>'+
+      '<textarea id="sct" placeholder="Paste scorecard text..."></textarea></div>'+
+    '<div class="sep"></div>'+
+    '<p class="small muted mb12">Upload screenshots:</p>'+
+    '<div class="fr">'+
+      '<div class="fg"><label>Innings 1</label><div class="upload-zone" onclick="document.getElementById(\'imgup1\').click()"><div id="upv1">📷 Innings 1</div><input type="file" id="imgup1" accept="image/*" style="display:none" onchange="handleImg(this,1)" /></div></div>'+
+      '<div class="fg"><label>Innings 2</label><div class="upload-zone" onclick="document.getElementById(\'imgup2\').click()"><div id="upv2">📷 Innings 2</div><input type="file" id="imgup2" accept="image/*" style="display:none" onchange="handleImg(this,2)" /></div></div>'+
+    '</div>'+
+    '<button class="btn btn-primary mt12" onclick="doParseAI()"><span id="pbt">🤖 Parse with AI</span></button>'+
+  '</div>'
+  ));
+}
+
+// ── Manual entry row adders ──
+function addManualBatRow(){
+  const body=document.getElementById('me-bat-body'); if(!body)return;
+  const idx=body.children.length;
+  const tr=document.createElement('tr'); tr.id='bat-row-'+idx;
+  tr.innerHTML='<td><input value="" class="me-bat-name" style="min-width:140px" placeholder="Player name" /></td>'+
+    '<td><input value="" class="me-bat-team" style="width:60px" placeholder="Team" /></td>'+
+    '<td><input type="number" value="0" class="me-bat-runs" style="width:55px" /></td>'+
+    '<td><input type="number" value="0" class="me-bat-balls" style="width:55px" /></td>'+
+    '<td><input type="number" value="0" class="me-bat-fours" style="width:45px" /></td>'+
+    '<td><input type="number" value="0" class="me-bat-sixes" style="width:45px" /></td>'+
+    '<td style="text-align:center"><input type="checkbox" class="me-bat-notout" style="width:auto" /></td>'+
+    '<td><input value="" class="me-bat-dismissal" placeholder="c X b Y" style="min-width:100px" /></td>'+
+    '<td><button class="btn btn-danger btn-xs" onclick="this.closest(\'tr\').remove()">✕</button></td>';
+  body.appendChild(tr);
+}
+
+function addManualBowlRow(){
+  const body=document.getElementById('me-bowl-body'); if(!body)return;
+  const tr=document.createElement('tr');
+  tr.innerHTML='<td><input value="" class="me-bowl-name" style="min-width:140px" placeholder="Bowler name" /></td>'+
+    '<td><input value="" class="me-bowl-team" style="width:60px" placeholder="Team" /></td>'+
+    '<td><input value="0" class="me-bowl-overs" style="width:55px" placeholder="4.0" /></td>'+
+    '<td><input type="number" value="0" class="me-bowl-maidens" style="width:55px" /></td>'+
+    '<td><input type="number" value="0" class="me-bowl-runs" style="width:55px" /></td>'+
+    '<td><input type="number" value="0" class="me-bowl-wickets" style="width:55px" /></td>'+
+    '<td><input type="number" value="0" class="me-bowl-wmaidens" style="width:55px" /></td>'+
+    '<td style="text-align:center"><input type="checkbox" class="me-bowl-hattrick" style="width:auto" /></td>'+
+    '<td><button class="btn btn-danger btn-xs" onclick="this.closest(\'tr\').remove()">✕</button></td>';
+  body.appendChild(tr);
+}
+
+function addManualFieldRow(){
+  const body=document.getElementById('me-field-body'); if(!body)return;
+  const tr=document.createElement('tr');
+  tr.innerHTML='<td><input value="" class="me-field-name" style="min-width:140px" placeholder="Player name" /></td>'+
+    '<td><input type="number" value="0" class="me-field-catches" style="width:60px" /></td>'+
+    '<td><input type="number" value="0" class="me-field-stumpings" style="width:60px" /></td>'+
+    '<td><input type="number" value="0" class="me-field-runouts" style="width:60px" /></td>'+
+    '<td><button class="btn btn-danger btn-xs" onclick="this.closest(\'tr\').remove()">✕</button></td>';
+  body.appendChild(tr);
+}
+
+// ── Read manual entry form into pendingSC format ──
+function submitManualScorecard(){
+  if(!checkAdmin('submit scorecard')) return;
+
+  // Read batting
+  const batting=[];
+  document.querySelectorAll('#me-bat-body tr').forEach(function(tr){
+    const name=tr.querySelector('.me-bat-name')?.value.trim();
+    if(!name) return;
+    const runs=parseInt(tr.querySelector('.me-bat-runs')?.value)||0;
+    const balls=parseInt(tr.querySelector('.me-bat-balls')?.value)||0;
+    // Skip rows where player clearly didn't bat (0 runs, 0 balls, not out unchecked = DNB placeholder)
+    const notOut=tr.querySelector('.me-bat-notout')?.checked||false;
+    const dismissal=tr.querySelector('.me-bat-dismissal')?.value.trim()||'';
+    if(runs===0 && balls===0 && !notOut && !dismissal) return; // skip DNB rows
+    batting.push({
+      name: name,
+      team: tr.querySelector('.me-bat-team')?.value.trim()||'',
+      runs: runs,
+      balls: balls,
+      fours: parseInt(tr.querySelector('.me-bat-fours')?.value)||0,
+      sixes: parseInt(tr.querySelector('.me-bat-sixes')?.value)||0,
+      strikeRate: balls>0 ? Math.round((runs/balls)*10000)/100 : 0,
+      isNotOut: notOut,
+      dismissal: dismissal
+    });
+  });
+
+  // Read bowling
+  const bowling=[];
+  document.querySelectorAll('#me-bowl-body tr').forEach(function(tr){
+    const name=tr.querySelector('.me-bowl-name')?.value.trim();
+    if(!name) return;
+    const overs=tr.querySelector('.me-bowl-overs')?.value.trim()||'0';
+    const runs=parseInt(tr.querySelector('.me-bowl-runs')?.value)||0;
+    const wickets=parseInt(tr.querySelector('.me-bowl-wickets')?.value)||0;
+    const ov=parseOvers(overs);
+    bowling.push({
+      name: name,
+      team: tr.querySelector('.me-bowl-team')?.value.trim()||'',
+      overs: overs,
+      maidens: parseInt(tr.querySelector('.me-bowl-maidens')?.value)||0,
+      wicketMaidens: parseInt(tr.querySelector('.me-bowl-wmaidens')?.value)||0,
+      runs: runs,
+      wickets: wickets,
+      economy: ov>0 ? Math.round((runs/ov)*100)/100 : 0,
+      hasHattrick: tr.querySelector('.me-bowl-hattrick')?.checked||false
+    });
+  });
+
+  // Read fielding
+  const fielding=[];
+  document.querySelectorAll('#me-field-body tr').forEach(function(tr){
+    const name=tr.querySelector('.me-field-name')?.value.trim();
+    if(!name) return;
+    const c=parseInt(tr.querySelector('.me-field-catches')?.value)||0;
+    const s=parseInt(tr.querySelector('.me-field-stumpings')?.value)||0;
+    const r=parseInt(tr.querySelector('.me-field-runouts')?.value)||0;
+    if(c===0&&s===0&&r===0) return;
+    fielding.push({ name:name, catches:c, stumpings:s, runOuts:r });
+  });
+
+  const winner=document.getElementById('me-winner')?.value.trim()||'';
+  const mom=document.getElementById('me-mom')?.value.trim()||'';
+  const team1=document.getElementById('me-team1')?.value.trim()||'';
+  const team2=document.getElementById('me-team2')?.value.trim()||'';
+
+  if(batting.length===0 && bowling.length===0){
+    alert('Please enter at least some batting or bowling data.'); return;
+  }
+
+  const existingMatch=S.matches.find(x=>x.id===scorecardMatchId);
+  pendingSC = {
+    match: { team1:team1, team2:team2, winner:winner, mom:mom },
+    batting: batting,
+    bowling: bowling,
+    fielding: fielding,
+    matchName: existingMatch?.name||'',
+    matchType: existingMatch?.type||'league',
+    matchDate: existingMatch?.date||''
+  };
+  render();
+}
+
+// ── Client-side text parser (Cricbuzz format) ──
+function doParseText(){
+  if(!checkAdmin('parse scorecard')) return;
+  const txt=document.getElementById('sct')?.value.trim();
+  if(!txt){alert('Paste the scorecard text first.');return;}
+  const winner=document.getElementById('tp-winner')?.value.trim()||'';
+  const mom=document.getElementById('tp-mom')?.value.trim()||'';
+
+  try {
+    const result = parseCricbuzzText(txt);
+    const existingMatch=S.matches.find(x=>x.id===scorecardMatchId);
+    pendingSC = {
+      match: { team1:result.team1||'', team2:result.team2||'', winner:winner||result.winner||'', mom:mom||result.mom||'' },
+      batting: result.batting,
+      bowling: result.bowling,
+      fielding: result.fielding,
+      matchName: existingMatch?.name||'',
+      matchType: existingMatch?.type||'league',
+      matchDate: existingMatch?.date||''
+    };
+    if(pendingSC.batting.length===0 && pendingSC.bowling.length===0){
+      alert('Could not parse any player data from the text. Try Manual Entry instead.');
+      return;
+    }
+    render();
+  } catch(e) {
+    alert('Parse error: '+e.message+'\n\nTry Manual Entry instead.');
+  }
+}
+
+function parseCricbuzzText(txt){
+  const lines=txt.split('\n').map(function(l){return l.trim();}).filter(function(l){return l.length>0;});
+  const batting=[], bowling=[], fielding=[];
+  let team1='', team2='', winner='', mom='';
+  let mode=''; // 'bat' | 'bowl'
+  const fieldMap={};
+
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
+    const lower=line.toLowerCase();
+
+    // Detect MOM
+    if(lower.includes('player of the match')||lower.includes('man of the match')){
+      const parts=line.split(/[:–-]/); if(parts.length>1) mom=parts[parts.length-1].trim();
+      continue;
+    }
+    // Detect winner
+    if(lower.includes('won by')){
+      const wm=line.match(/^(.+?)\s+won\s+by/i);
+      if(wm) winner=wm[1].trim();
+      continue;
+    }
+
+    // Detect section headers
+    if(lower.match(/^batting$|batting\s*$/)||lower.includes('batter')||lower.match(/^batsman/)){mode='bat';continue;}
+    if(lower.match(/^bowling$|bowling\s*$/)||lower.includes('bowler')){mode='bowl';continue;}
+    if(lower.match(/^fall of wickets|^extras|^total|^did not bat|^yet to bat/)){mode='';continue;}
+
+    // Try batting line: "Name  dismissal  R  B  4s  6s  SR" or "Name  not out  R  B  4s  6s  SR"
+    // Common pattern: name followed by numbers at the end
+    const batMatch=line.match(/^(.+?)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s*$/);
+    if(batMatch && (mode==='bat'||mode==='')){
+      const rawName=batMatch[1].trim();
+      const runs=parseInt(batMatch[2])||0;
+      const balls=parseInt(batMatch[3])||0;
+      const fours=parseInt(batMatch[4])||0;
+      const sixes=parseInt(batMatch[5])||0;
+      const sr=parseFloat(batMatch[6])||0;
+
+      // Separate name from dismissal text
+      let name=rawName, dismissal='', isNotOut=false;
+      // Check for "not out" or "Not Out"
+      const noMatch=rawName.match(/^(.+?)\s+(not\s*out)\s*$/i);
+      if(noMatch){ name=noMatch[1].trim(); isNotOut=true; dismissal='not out'; }
+      else {
+        // Check for dismissal patterns: "c X b Y", "lbw b Y", "b Y", "run out (X)", "st X b Y", "hit wicket b Y"
+        const disMatch=rawName.match(/^(.+?)\s+((?:c\s|st\s|lbw\s|b\s|run\s*out|hit\s*wicket|retired).+)$/i);
+        if(disMatch){ name=disMatch[1].trim(); dismissal=disMatch[2].trim(); }
+      }
+      // Clean name: remove † ✝ (c) etc
+      name=name.replace(/[†✝]/g,'').replace(/\(c\)|\(wk\)/gi,'').trim();
+      if(!name || name.length<2) continue;
+
+      batting.push({name:name,team:'',runs:runs,balls:balls,fours:fours,sixes:sixes,strikeRate:sr,isNotOut:isNotOut,dismissal:dismissal});
+
+      // Extract fielding from dismissal
+      if(dismissal){
+        const cMatch=dismissal.match(/^c\s+(.+?)\s+b\s+/i);
+        if(cMatch){const fn=cMatch[1].replace(/[†✝]/g,'').trim();if(fn&&fn!=='sub'){if(!fieldMap[fn])fieldMap[fn]={catches:0,stumpings:0,runOuts:0};fieldMap[fn].catches++;}}
+        const stMatch=dismissal.match(/^st\s+(.+?)\s+b\s+/i);
+        if(stMatch){const fn=stMatch[1].replace(/[†✝]/g,'').trim();if(fn){if(!fieldMap[fn])fieldMap[fn]={catches:0,stumpings:0,runOuts:0};fieldMap[fn].stumpings++;}}
+        const roMatch=dismissal.match(/run\s*out\s*\(([^)]+)\)/i);
+        if(roMatch){const names=roMatch[1].split('/');names.forEach(function(n){const fn=n.replace(/[†✝]/g,'').trim();if(fn){if(!fieldMap[fn])fieldMap[fn]={catches:0,stumpings:0,runOuts:0};fieldMap[fn].runOuts++;}});}
+      }
+      continue;
+    }
+
+    // Try bowling line: "Name  O  M  R  W  Eco" or "Name  O  M  R  W  NB  WD  Eco"
+    const bowlMatch=line.match(/^(.+?)\s+([\d.]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s*$/);
+    if(bowlMatch && (mode==='bowl'||mode==='')){
+      let name=bowlMatch[1].replace(/[†✝]/g,'').replace(/\(c\)|\(wk\)/gi,'').trim();
+      if(!name || name.length<2) continue;
+      const overs=bowlMatch[2];
+      const maidens=parseInt(bowlMatch[3])||0;
+      const runs=parseInt(bowlMatch[4])||0;
+      const wickets=parseInt(bowlMatch[5])||0;
+      const eco=parseFloat(bowlMatch[6])||0;
+      bowling.push({name:name,team:'',overs:overs,maidens:maidens,wicketMaidens:0,runs:runs,wickets:wickets,economy:eco,hasHattrick:false});
+      continue;
+    }
+
+    // Try bowling with extras columns: "Name  O  M  R  W  NB  WD  Eco"
+    const bowlMatch2=line.match(/^(.+?)\s+([\d.]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\d+\s+\d+\s+([\d.]+)\s*$/);
+    if(bowlMatch2 && (mode==='bowl'||mode==='')){
+      let name=bowlMatch2[1].replace(/[†✝]/g,'').replace(/\(c\)|\(wk\)/gi,'').trim();
+      if(!name || name.length<2) continue;
+      bowling.push({name:name,team:'',overs:bowlMatch2[2],maidens:parseInt(bowlMatch2[3])||0,wicketMaidens:0,runs:parseInt(bowlMatch2[4])||0,wickets:parseInt(bowlMatch2[5])||0,economy:parseFloat(bowlMatch2[6])||0,hasHattrick:false});
+      continue;
+    }
+  }
+
+  // Convert fieldMap to array
+  for(var fn in fieldMap){
+    if(fieldMap.hasOwnProperty(fn)){
+      fielding.push({name:fn, catches:fieldMap[fn].catches, stumpings:fieldMap[fn].stumpings, runOuts:fieldMap[fn].runOuts});
+    }
+  }
+
+  return{team1:team1,team2:team2,winner:winner,mom:mom,batting:batting,bowling:bowling,fielding:fielding};
 }
 
 function vAddStep2(){
