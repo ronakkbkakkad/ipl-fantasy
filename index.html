@@ -1029,8 +1029,18 @@ async function doParseAI(){
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:3000,system:PARSE_PROMPT,messages:[{role:'user',content:userContent}]})
     });
-    const data=await res.json();
+const data=await res.json();
     const raw=data.content?.[0]?.text||'';
+    if(!raw){
+      if(btn)btn.innerHTML='🤖 Parse with AI';
+      alert('Empty response from API. Try again.');
+      return;
+    }
+    if(raw.startsWith('API_ERROR:') || raw.startsWith('WORKER_ERROR:') || raw.startsWith('GEMINI_ERROR:')){
+      if(btn)btn.innerHTML='🤖 Parse with AI';
+      alert('Error:\n\n'+raw);
+      return;
+    }
     const clean=raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
     const parsed=JSON.parse(clean);
     pendingSC={...parsed,_matchName:mn,_matchType:mtype,_matchDate:mdate};
