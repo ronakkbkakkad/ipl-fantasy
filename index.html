@@ -1078,8 +1078,8 @@ async function doParseAI() {
     alert('Parse failed: ' + e.message + '\n\nIf model keeps adding preamble, try a different free model on OpenRouter.');
   }
 }
-const data=await res.json();
-const raw = data.content?.?.text || '';
+//const data=await res.json();
+//const raw = data.content?.?.text || '';
 
 function extractFirstJSON(str) {
   // Find first '{' or '['
