@@ -10,7 +10,7 @@
   import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
   // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────
-  const firebaseConfig = {
+const firebaseConfig = {
   apiKey: "AIzaSyCZoXw-bl1wLQ3nolBeqnyQj6Br7rBrETU",
   authDomain: "ipl-fantasy-9.firebaseapp.com",
   projectId: "ipl-fantasy-9",
@@ -18,7 +18,6 @@
   messagingSenderId: "947793342632",
   appId: "1:947793342632:web:03777efdb524958fa9929d"
 };
-
   // ─────────────────────────────────────────────────────────────────────────
 
   const app = initializeApp(firebaseConfig);
@@ -888,7 +887,6 @@ function vAddScorecard(){
     <button class="btn btn-primary mt12" onclick="doParseAI()"><span id="pbt">🤖 Parse with AI</span></button>
   </div>`;
 }
-}
 
 function vAddStep2(){
   const sc=pendingSC;
@@ -1551,6 +1549,7 @@ function vPredictions(){
     <h2 style="margin:16px 0 12px">📋 Past Matches — Results</h2>
     ${pastMatches.map(m=>predCardInput(m, false)).join('')}
   ` : ''}`;
+}
 
 function predCardInput(m, canInput){
   const isToday = canInput;
