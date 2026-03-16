@@ -1000,21 +1000,7 @@ RULES:
 - wins: look for "won by" or result text
 - MOM: look for "Player of the match" or "man of the match"`;
 
-async function doParseAI() {
-  if (!checkAdmin('parse a match')) return;
-
-  const txt = document.getElementById('sct')?.value.trim();
-  const mn = document.getElementById('mn')?.value.trim();
-  const mtype = document.getElementById('mt')?.value;
-  const mdate = document.getElementById('md')?.value;
-  const hasImages = uploadImg1 || uploadImg2;
-
-  if (!txt && !hasImages) { alert('Paste scorecard text or upload at least one screenshot'); return; }
-
-  const btn = document.getElementById('pbt');
-  if (btn) btn.innerHTML = '<span class="spinner"></span> Parsing...';
-
-  // ── robust JSON extractor ──────────────────────────────────────────
+    // ── robust JSON extractor ──────────────────────────────────────────
   function extractJSON(str) {
     const objIdx = str.indexOf('{');
     const arrIdx = str.indexOf('[');
@@ -1039,6 +1025,22 @@ async function doParseAI() {
     throw new Error('JSON in model response was incomplete or malformed');
   }
   // ──────────────────────────────────────────────────────────────────
+  
+async function doParseAI() {
+  if (!checkAdmin('parse a match')) return;
+
+  const txt = document.getElementById('sct')?.value.trim();
+  const mn = document.getElementById('mn')?.value.trim();
+  const mtype = document.getElementById('mt')?.value;
+  const mdate = document.getElementById('md')?.value;
+  const hasImages = uploadImg1 || uploadImg2;
+
+  if (!txt && !hasImages) { alert('Paste scorecard text or upload at least one screenshot'); return; }
+
+  const btn = document.getElementById('pbt');
+  if (btn) btn.innerHTML = '<span class="spinner"></span> Parsing...';
+
+
 
   let userContent;
   if (hasImages) {
@@ -1054,64 +1056,32 @@ async function doParseAI() {
   }
 
   try {
-    const res = await fetch('YOUR_CLOUDFLARE_WORKER_URL', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ system: PARSEPROMPT, messages: [{ role: 'user', content: userContent }] })
-    });
+  const res = await fetch('YOUR_CLOUDFLARE_WORKER_URL', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ system: PARSEPROMPT, messages: [{ role: 'user', content: userContent }] })
+  });
 
-    const data = await res.json();
-    const raw = data.content?.[0]?.text || '';
+  const data = await res.json();
+  const raw = data.content?.[0]?.text || '';
 
-    if (raw.startsWith('API_ERROR') || raw.startsWith('WORKER_ERROR')) {
-      throw new Error(raw);
-    }
-
-    const parsed = extractJSON(raw);  // ← uses bracket-depth, immune to preamble text
-
-    pendingSC = { ...parsed, matchName: mn, matchType: mtype, matchDate: mdate };
-    uploadImg1 = null; uploadImg2 = null; uploadType1 = null; uploadType2 = null;
-    render();
-
-  } catch (e) {
-    if (btn) btn.innerHTML = 'Parse with AI';
-    alert('Parse failed: ' + e.message + '\n\nIf model keeps adding preamble, try a different free model on OpenRouter.');
+  if (raw.startsWith('API_ERROR') || raw.startsWith('WORKER_ERROR')) {
+    throw new Error(raw);
   }
+
+  const parsed = extractJSON(raw);  // ✅ raw is in scope here
+
+  pendingSC = { ...parsed, matchName: mn, matchType: mtype, matchDate: mdate };
+  uploadImg1 = null; uploadImg2 = null; uploadType1 = null; uploadType2 = null;
+  render();
+
+} catch (e) {
+  if (btn) btn.innerHTML = 'Parse with AI';
+  alert('Parse failed: ' + e.message);
 }
+
 //const data=await res.json();
 //const raw = data.content?.?.text || '';
-
-function extractFirstJSON(str) {
-  // Find first '{' or '['
-  const start = str.search(/[\[{]/);
-  if (start === -1) throw new Error('No JSON start token found');
-
-  // Try to incrementally parse growing substrings until JSON.parse succeeds
-  for (let end = str.length; end > start + 1; end--) {
-    const candidate = str.slice(start, end).trim();
-    try {
-      return JSON.parse(candidate);
-    } catch (e) {
-      // keep shrinking from the right
-    }
-  }
-  throw new Error('Could not parse JSON from model output');
-}
-
-let parsed;
-try {
-  parsed = extractFirstJSON(raw);
-} catch (e) {
-  throw new Error(`Model did not return valid JSON: ${e.message}`);
-}
-
-pendingSC = {
-  ...parsed,
-  matchName: mn,
-  matchType: mtype,
-  matchDate: mdate
-};
-
 function clearPending(){pendingSC=null;uploadImg1=null;uploadImg2=null;render();}
 
 async function submitMatch(){
