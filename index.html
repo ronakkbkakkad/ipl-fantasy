@@ -10,7 +10,7 @@
   import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
   // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────
-  const firebaseConfig = {
+const firebaseConfig = {
   apiKey: "AIzaSyCZoXw-bl1wLQ3nolBeqnyQj6Br7rBrETU",
   authDomain: "ipl-fantasy-9.firebaseapp.com",
   projectId: "ipl-fantasy-9",
@@ -208,9 +208,11 @@ label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
 
 <script>
 // ═══════════════════════════════════════════
-// ADMIN AUTH
+// CONFIG — set both values before deploying
 // ═══════════════════════════════════════════
-const ADMIN_PASSWORD = "ipl2025admin"; // ← change this to your desired password
+const ADMIN_PASSWORD = "ipl2025admin"; // ← your admin password
+const WORKER_URL = "ipl-fantasy-proxy.ronakbkakkad.workers.dev"; // ← e.g. https://ipl-fantasy-proxy.yourname.workers.dev
+
 let isAdmin = false;
 
 function setAdminUI(on) {
@@ -936,10 +938,15 @@ async function doParseAI(){
     const note=uploadImg1&&uploadImg2?'Two innings screenshots: Image 1 = first innings, Image 2 = second innings. Merge both into one combined JSON.':'One innings screenshot provided.';
     userContent.push({type:'text',text:txt?note+'\nAdditional text:\n'+txt:note});
   } else { userContent=txt; }
+  if(!WORKER_URL || WORKER_URL.startsWith('PASTE')){
+    if(btn)btn.innerHTML='🤖 Parse with AI';
+    alert('❌ Worker URL not set.\n\nOpen index.html and paste your Cloudflare Worker URL into WORKER_URL at the top of the script.');
+    return;
+  }
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
+    const res=await fetch(WORKER_URL,{
       method:'POST',
-      headers:{'Content-Type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
+      headers:{'Content-Type':'application/json'},
       body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:3000,system:PARSE_PROMPT,messages:[{role:'user',content:userContent}]})
     });
     const data=await res.json();
