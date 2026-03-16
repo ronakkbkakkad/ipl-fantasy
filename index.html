@@ -10,7 +10,7 @@
   import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
   // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────
-const firebaseConfig = {
+  const firebaseConfig = {
   apiKey: "AIzaSyCZoXw-bl1wLQ3nolBeqnyQj6Br7rBrETU",
   authDomain: "ipl-fantasy-9.firebaseapp.com",
   projectId: "ipl-fantasy-9",
@@ -18,6 +18,7 @@ const firebaseConfig = {
   messagingSenderId: "947793342632",
   appId: "1:947793342632:web:03777efdb524958fa9929d"
 };
+
   // ─────────────────────────────────────────────────────────────────────────
 
   const app = initializeApp(firebaseConfig);
@@ -530,7 +531,7 @@ function processTeamMatch(team, sc, matchId){
 function teamTotal(team){
   let t=0;
   for(const m of S.matches){
-    if(m.teamScores?.[team.id]) t+=m.teamScores[team.id].total||0;
+    if(m.completed && m.teamScores?.[team.id]) t+=m.teamScores[team.id].total||0;
   }
   // Wrong swap penalties
   const wrongSwaps=(team.swaps?.history||[]).filter(s=>s.isWrong).length;
@@ -632,9 +633,10 @@ function lastMatchWidget(){
 // VIEW: MATCHES
 // ═══════════════════════════════════════════
 function vMatches(){
-  if(!S.matches.length) return`<div class="empty"><div class="icon">📊</div><h2>No matches yet</h2><p>${isAdmin?'Add your first match to track points':'Matches will appear here once the season begins'}</p>${isAdmin?'<button class="btn btn-primary" onclick="nav(\'add\')">Add Match →</button>':''}</div>`;
-  return`<div class="fb mb16"><h1>Match History</h1>${isAdmin?'<button class="btn btn-primary btn-sm" onclick="nav(\'add\')">+ Add Match</button>':''}</div>
-  ${[...S.matches].reverse().map(m=>matchCard(m)).join('')}`;
+  const completed=S.matches.filter(m=>m.completed);
+  if(!completed.length) return`<div class="empty"><div class="icon">📊</div><h2>No completed matches yet</h2><p>${isAdmin?'Create a match and upload the scorecard after it ends':'Scores will appear here once matches are completed'}</p>${isAdmin?'<button class="btn btn-primary" onclick="nav(\'add\')">Match Manager →</button>':''}</div>`;
+  return`<div class="fb mb16"><h1>Match History</h1>${isAdmin?'<button class="btn btn-primary btn-sm" onclick="nav(\'add\')">Match Manager</button>':''}</div>
+  ${[...completed].reverse().map(m=>matchCard(m)).join('')}`;
 }
 
 function matchCard(m){
@@ -687,21 +689,18 @@ function delMatch(id){if(!checkAdmin('delete a match'))return;if(!confirm('Delet
 let pointsView = { teamId: null, matchId: null };
 
 function vPoints(){
-  if(!S.matches.length) return`<div class="empty"><div class="icon">📈</div><h2>No matches yet</h2><p>Points will appear here once matches are added</p></div>`;
+  const completedMatches = S.matches.filter(m=>m.completed);
+  if(!completedMatches.length) return`<div class="empty"><div class="icon">📈</div><h2>No completed matches yet</h2><p>Points will appear here once a match scorecard is uploaded</p></div>`;
   if(!S.teams.length) return`<div class="empty"><div class="icon">👥</div><h2>No teams yet</h2></div>`;
 
   const selTeam = pointsView.teamId || S.teams[0].id;
-  const selMatch = pointsView.matchId || S.matches[S.matches.length-1].id;
+  const selMatch = pointsView.matchId || completedMatches[completedMatches.length-1].id;
   const team = S.teams.find(t=>t.id===selTeam);
-  const match = S.matches.find(m=>m.id===selMatch);
+  const match = completedMatches.find(m=>m.id===selMatch) || completedMatches[completedMatches.length-1];
   const scores = match?.teamScores?.[selTeam];
-
-  // Build cumulative totals per match per team for the chart row
-  const matchList = [...S.matches];
 
   return`<div class="fb mb16"><h1>📈 Points Breakdown</h1></div>
 
-  <!-- Team selector -->
   <div class="card mb12">
     <h3>Select Team</h3>
     <div style="display:flex;flex-wrap:wrap;gap:8px">
@@ -715,99 +714,171 @@ function vPoints(){
     </div>
   </div>
 
-  <!-- Match-wise summary for selected team -->
   <div class="card mb12">
     <h2>${team?.name} — Match-wise Points</h2>
-    <div class="tscroll">
-      <table>
-        <thead><tr><th>#</th><th>Match</th><th>Date</th><th>C</th><th>VC</th><th>Points</th><th></th></tr></thead>
-        <tbody>
-          ${matchList.map((m,i)=>{
-            const s=m.teamScores?.[selTeam];
-            const active=m.id===selMatch;
-            if(!s) return`<tr><td class="muted">${i+1}</td><td>${m.name}</td><td class="muted">${m.date||''}</td><td colspan="3" class="muted small">—</td><td></td></tr>`;
-            return`<tr style="background:${active?'var(--orange-dim)':''}">
-              <td class="muted">${i+1}</td>
-              <td style="font-weight:600">${m.name}</td>
-              <td class="muted small">${m.date||''}</td>
-              <td><span class="badge b-gold" style="font-size:10px">${s.captain||'—'}</span></td>
-              <td><span class="badge b-blue" style="font-size:10px">${s.vc||'—'}</span></td>
-              <td><span class="${s.total>=0?'pos':'neg'}" style="font-weight:700;font-size:15px">${s.total}</span></td>
-              <td><button class="btn btn-ghost btn-xs" onclick="pointsView.matchId='${m.id}';pointsView.teamId='${selTeam}';render()">Drill ▾</button></td>
-            </tr>`;
-          }).join('')}
-          <tr style="border-top:2px solid var(--border2)">
-            <td colspan="5" style="font-weight:700;color:var(--text2)">Total</td>
-            <td><span class="hl" style="font-weight:700;font-size:16px">${teamTotal(team)}</span></td>
-            <td></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <div class="tscroll"><table>
+      <thead><tr><th>#</th><th>Match</th><th>Date</th><th>C</th><th>VC</th><th>Points</th><th></th></tr></thead>
+      <tbody>
+        ${completedMatches.map((m,i)=>{
+          const s=m.teamScores?.[selTeam];
+          const active=m.id===selMatch;
+          if(!s) return`<tr><td class="muted">${i+1}</td><td>${m.name}</td><td class="muted">${m.date||''}</td><td colspan="3" class="muted small">—</td><td></td></tr>`;
+          return`<tr style="background:${active?'var(--orange-dim)':''}">
+            <td class="muted">${i+1}</td>
+            <td style="font-weight:600">${m.name}</td>
+            <td class="muted small">${m.date||''}</td>
+            <td><span class="badge b-gold" style="font-size:10px">${s.captain||'—'}</span></td>
+            <td><span class="badge b-blue" style="font-size:10px">${s.vc||'—'}</span></td>
+            <td><span class="${s.total>=0?'pos':'neg'}" style="font-weight:700;font-size:15px">${s.total}</span></td>
+            <td><button class="btn btn-ghost btn-xs" onclick="pointsView.matchId='${m.id}';pointsView.teamId='${selTeam}';render()">Drill ▾</button></td>
+          </tr>`;
+        }).join('')}
+        <tr style="border-top:2px solid var(--border2)">
+          <td colspan="5" style="font-weight:700;color:var(--text2)">Total</td>
+          <td><span class="hl" style="font-weight:700;font-size:16px">${teamTotal(team)}</span></td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table></div>
   </div>
 
-  <!-- Player drill-down for selected match -->
   ${scores ? `<div class="card">
     <div class="fb mb12">
       <h2>${team?.name} — ${match?.name}</h2>
       <span class="badge b-blue">${match?.date||''}</span>
     </div>
-    ${match?.winner?`<div class="alert al-success mb12">🏆 Winner: <strong>${match.winner}</strong>${match.mom?` · MOM: <strong>${match.mom}</strong>`:''}</div>`:''}
-    <div class="tscroll">
-      <table>
-        <thead><tr><th>Player</th><th>Role</th><th>Breakdown</th><th>Points</th></tr></thead>
-        <tbody>
-          ${[...(scores.players||[])].sort((a,b)=>b.pts-a.pts).map(p=>`<tr>
-            <td style="font-weight:600">${p.name}${p.isC?' <span class="badge b-gold">C</span>':''}${p.isVC?' <span class="badge b-blue">VC</span>':''}</td>
-            <td>${p.bd?.some(b=>b.c==='bat')?'🏏':p.bd?.some(b=>b.c==='bowl')?'⚡':p.bd?.some(b=>b.c==='field')?'🧤':'—'}</td>
-            <td class="xs muted" style="max-width:300px">${(p.bd||[]).map(b=>`<span style="color:${b.p<0?'var(--red)':'var(--text2)'}">${b.l}(${b.p>0?'+':''}${b.p})</span>`).join(' · ')}</td>
-            <td class="${p.pts>=0?'pos':'neg'}" style="font-weight:700">${p.pts>0?'+':''}${p.pts}</td>
-          </tr>`).join('')}
-          <tr style="border-top:2px solid var(--border2)">
-            <td colspan="3" style="font-weight:700;color:var(--text2)">Match Total</td>
-            <td><span class="hl" style="font-weight:700;font-size:15px">${scores.total}</span></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    ${match?.winner?`<div class="alert al-success mb12">🏆 Winner: <strong>${match.winner}</strong>${match.mom?` &nbsp;·&nbsp; ⭐ MOM: <strong>${match.mom}</strong>`:''}</div>`:''}
+    <div class="tscroll"><table>
+      <thead><tr><th>Player</th><th>Role</th><th>Breakdown</th><th>Points</th></tr></thead>
+      <tbody>
+        ${[...(scores.players||[])].sort((a,b)=>b.pts-a.pts).map(p=>`<tr>
+          <td style="font-weight:600">${p.name}${p.isC?' <span class="badge b-gold">C</span>':''}${p.isVC?' <span class="badge b-blue">VC</span>':''}${p.name===match?.mom?' <span class="badge b-orange">⭐MOM</span>':''}</td>
+          <td>${p.bd?.some(b=>b.c==='bat')?'🏏':p.bd?.some(b=>b.c==='bowl')?'⚡':p.bd?.some(b=>b.c==='field')?'🧤':'—'}</td>
+          <td class="xs muted" style="max-width:300px">${(p.bd||[]).map(b=>`<span style="color:${b.p<0?'var(--red)':'var(--text2)'}">${b.l}(${b.p>0?'+':''}${b.p})</span>`).join(' · ')}</td>
+          <td class="${p.pts>=0?'pos':'neg'}" style="font-weight:700">${p.pts>0?'+':''}${p.pts}</td>
+        </tr>`).join('')}
+        <tr style="border-top:2px solid var(--border2)">
+          <td colspan="3" style="font-weight:700;color:var(--text2)">Match Total</td>
+          <td><span class="hl" style="font-weight:700;font-size:15px">${scores.total}</span></td>
+        </tr>
+      </tbody>
+    </table></div>
   </div>` : `<div class="alert al-info">Select a match row above (click "Drill ▾") to see player-level breakdown.</div>`}`;
 }
 
 // ═══════════════════════════════════════════
-// VIEW: ADD MATCH
+// VIEW: ADD MATCH — two-phase flow
 // ═══════════════════════════════════════════
+let addView = 'menu'; // 'menu' | 'create' | 'scorecard'
+let scorecardMatchId = null;
+
 function vAdd(){
   if(!S.teams.length) return`<div class="empty"><div class="icon">👥</div><h2>Add teams first</h2><button class="btn btn-primary" onclick="nav('teams')">Add Teams →</button></div>`;
-  if(pendingSC) return vAddStep2();
-  return`<div class="fb mb16"><h1>Add Match</h1></div>
+  if(addView==='create') return vAddCreate();
+  if(addView==='scorecard') return pendingSC ? vAddStep2() : vAddScorecard();
+  return vAddMenu();
+}
+
+function vAddMenu(){
+  const upcoming=S.matches.filter(m=>!m.completed);
+  const completed=S.matches.filter(m=>m.completed);
+  return`<div class="fb mb16"><h1>Match Manager</h1></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+    <div class="card" style="cursor:pointer" onclick="addView='create';render()">
+      <div style="font-size:28px">📅</div>
+      <h2 style="color:var(--orange);margin-top:8px">Create Upcoming Match</h2>
+      <p class="muted small">Schedule a match so teams can submit predictions before it starts.</p>
+    </div>
+    <div class="card">
+      <div style="font-size:28px">📤</div>
+      <h2 style="margin-top:8px">Upload Scorecard</h2>
+      <p class="muted small">${upcoming.length?`${upcoming.length} match${upcoming.length>1?'es':''} awaiting scorecard.`:'No upcoming matches — create one first.'}</p>
+    </div>
+  </div>
+  ${upcoming.length?`<div class="card mb12">
+    <h2>⏳ Upcoming — Awaiting Scorecard</h2>
+    <div class="tscroll"><table>
+      <thead><tr><th>Match</th><th>Date</th><th>Type</th><th>Predictions</th><th></th></tr></thead>
+      <tbody>${upcoming.map(m=>{
+        const predCount=S.teams.filter(t=>t.predictions?.[m.id]).length;
+        return`<tr>
+          <td style="font-weight:600">${m.name}</td>
+          <td class="muted">${m.date||'—'}</td>
+          <td><span class="badge b-blue">${m.type||'League'}</span></td>
+          <td><span class="badge b-green">${predCount}/${S.teams.length} submitted</span></td>
+          <td class="fc g6">
+            <button class="btn btn-primary btn-sm" onclick="addView='scorecard';scorecardMatchId='${m.id}';render()">📤 Upload Scorecard</button>
+            <button class="btn btn-danger btn-xs" onclick="delMatch('${m.id}')">Delete</button>
+          </td>
+        </tr>`;}).join('')}
+      </tbody>
+    </table></div>
+  </div>`:''}
+  ${completed.length?`<div class="card">
+    <h2>✅ Completed Matches</h2>
+    <div class="tscroll"><table>
+      <thead><tr><th>Match</th><th>Date</th><th>Winner</th><th>MOM</th><th></th></tr></thead>
+      <tbody>${[...completed].reverse().map(m=>`<tr>
+        <td style="font-weight:600">${m.name}</td>
+        <td class="muted">${m.date||'—'}</td>
+        <td>${m.winner?`<span class="badge b-green">${m.winner}</span>`:'—'}</td>
+        <td class="muted small">${m.mom||'—'}</td>
+        <td><button class="btn btn-danger btn-xs" onclick="delMatch('${m.id}')">Delete</button></td>
+      </tr>`).join('')}
+      </tbody>
+    </table></div>
+  </div>`:''}`;
+}
+
+function vAddCreate(){
+  return`<div class="fb mb16"><h1>Create Upcoming Match</h1><button class="btn btn-secondary btn-sm" onclick="addView='menu';render()">← Back</button></div>
   <div class="card">
-    <h2>Step 1 — Parse Scorecard</h2>
-    <p class="muted small mb16">Paste Cricbuzz scorecard text OR upload <strong>2 screenshots</strong> (one per innings). Claude will extract batting/bowling/fielding automatically.</p>
-    <div class="alert al-warn">⚠️ Super over stats are NOT counted — exclude them when pasting text.</div>
-    <div class="fr mt12">
+    <div class="alert al-info mb16">Once created, all teams can submit predictions. Upload the scorecard after the game ends.</div>
+    <div class="fr">
       <div class="fg"><label>Match Name</label><input id="mn" placeholder="MI vs CSK — Match 12" /></div>
       <div class="fg"><label>Date</label><input type="date" id="md" value="${new Date().toISOString().split('T')[0]}" /></div>
     </div>
-    <div class="fg">
-      <label>Match Type</label>
+    <div class="fg"><label>Match Type</label>
       <select id="mt"><option value="league">League Stage</option><option value="semifinal">Semi-Final</option><option value="final">Final</option></select>
     </div>
-    <div class="fg">
-      <label>Paste Scorecard Text (from Cricbuzz — include both innings)</label>
+    <button class="btn btn-primary" onclick="createUpcomingMatch()">📅 Create Match & Open Predictions</button>
+  </div>`;
+}
+
+async function createUpcomingMatch(){
+  if(!checkAdmin('create a match')) return;
+  const name=document.getElementById('mn')?.value.trim();
+  const date=document.getElementById('md')?.value;
+  const type=document.getElementById('mt')?.value;
+  if(!name){alert('Match name required');return;}
+  S.matches.push({id:gid(),name,date,type,completed:false,teamScores:{},winner:'',mom:''});
+  await saveS();
+  addView='menu';
+  render();
+  alert(`✅ "${name}" created! Predictions are now open.`);
+}
+
+function vAddScorecard(){
+  const m=S.matches.find(x=>x.id===scorecardMatchId);
+  if(!m) return`<div class="empty"><p>Match not found.</p></div>`;
+  return`<div class="fb mb16"><h1>Upload Scorecard</h1><button class="btn btn-secondary btn-sm" onclick="addView='menu';render()">← Back</button></div>
+  <div class="card">
+    <div class="alert al-success mb16">📅 <strong>${m.name}</strong> · ${m.date||''}</div>
+    <p class="muted small mb16">Paste Cricbuzz text OR upload <strong>2 screenshots</strong> (one per innings).</p>
+    <div class="alert al-warn mb12">⚠️ Super over stats are NOT counted.</div>
+    <div class="fg"><label>Paste Scorecard Text (both innings)</label>
       <textarea id="sct" placeholder="Paste full scorecard including both innings batting & bowling tables..."></textarea>
     </div>
     <div class="sep"></div>
-    <p class="small muted mb12">OR upload screenshots (Cricbuzz shows one innings per screenshot — upload both):</p>
+    <p class="small muted mb12">OR upload screenshots:</p>
     <div class="fr">
-      <div class="fg">
-        <label>Innings 1 Screenshot</label>
+      <div class="fg"><label>Innings 1 Screenshot</label>
         <div class="upload-zone" onclick="document.getElementById('imgup1').click()">
           <div id="upv1">📷 Innings 1</div>
           <input type="file" id="imgup1" accept="image/*" style="display:none" onchange="handleImg(this,1)" />
         </div>
       </div>
-      <div class="fg">
-        <label>Innings 2 Screenshot</label>
+      <div class="fg"><label>Innings 2 Screenshot</label>
         <div class="upload-zone" onclick="document.getElementById('imgup2').click()">
           <div id="upv2">📷 Innings 2</div>
           <input type="file" id="imgup2" accept="image/*" style="display:none" onchange="handleImg(this,2)" />
@@ -817,16 +888,23 @@ function vAdd(){
     <button class="btn btn-primary mt12" onclick="doParseAI()"><span id="pbt">🤖 Parse with AI</span></button>
   </div>`;
 }
+}
 
 function vAddStep2(){
   const sc=pendingSC;
-  return`<div class="fb mb16"><h1>Add Match</h1><button class="btn btn-secondary btn-sm" onclick="clearPending()">← Re-parse</button></div>
+  const allPlayers=[...new Set([...(sc.batting||[]).map(b=>b.name),...(sc.bowling||[]).map(b=>b.name)].filter(Boolean))];
+  return`<div class="fb mb16"><h1>Review Scorecard</h1><button class="btn btn-secondary btn-sm" onclick="clearPending()">← Re-parse</button></div>
   <div class="card mb12">
-    <div class="fb mb12"><h2>Step 2 — Review Parsed Scorecard</h2></div>
-    <div class="alert al-success">✅ Parsed: ${sc.match?.team1||'?'} vs ${sc.match?.team2||'?'}</div>
+    <div class="alert al-success mb12">✅ Parsed: ${sc.match?.team1||'?'} vs ${sc.match?.team2||'?'}</div>
     <div class="fr mb12">
-      <div class="fg"><label>Match Winner</label><input id="ewinner" value="${sc.match?.winner||''}" placeholder="e.g. MI" /></div>
-      <div class="fg"><label>Man of the Match</label><input id="emom" value="${sc.match?.mom||''}" placeholder="Player name" /></div>
+      <div class="fg"><label>Match Winner</label>
+        <input id="ewinner" value="${sc.match?.winner||''}" placeholder="e.g. MI" /></div>
+      <div class="fg"><label>⭐ Man of the Match</label>
+        <select id="emom">
+          <option value="">— Select MOM —</option>
+          ${allPlayers.map(p=>`<option value="${p}" ${p===sc.match?.mom?'selected':''}>${p}</option>`).join('')}
+        </select>
+      </div>
     </div>
     <div class="stabs">
       <button class="stab active" onclick="stab('bat',this)">Batting (${sc.batting?.length||0})</button>
@@ -838,10 +916,10 @@ function vAddStep2(){
     <div id="pb-field" style="display:none">${parsedFieldTable(sc.fielding||[])}</div>
   </div>
   <div class="card">
-    <h2>Step 3 — Team Configuration</h2>
-    <p class="muted small mb16">Set Captain/VC for this match and mark winning/abandoned teams.</p>
+    <h2>Team Configuration</h2>
+    <p class="muted small mb16">Set Captain/VC and mark winning/abandoned teams.</p>
     ${S.teams.map(t=>teamMatchCfg(t)).join('')}
-    <div class="mt16"><button class="btn btn-primary" onclick="submitMatch()">💾 Calculate & Save Match</button></div>
+    <div class="mt16"><button class="btn btn-primary" onclick="submitMatch()">💾 Calculate & Save Scores</button></div>
   </div>`;
 }
 
@@ -949,13 +1027,7 @@ async function doParseAI(){
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:3000,system:PARSE_PROMPT,messages:[{role:'user',content:userContent}]})
     });
-   const data=await res.json();
-    // Show actual API error if present
-    if(data.error){
-      if(btn)btn.innerHTML='🤖 Parse with AI';
-      alert('API Error: '+data.error+'\n\nDetail: '+(data.detail||''));
-      return;
-    }
+    const data=await res.json();
     const raw=data.content?.[0]?.text||'';
     const clean=raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
     const parsed=JSON.parse(clean);
@@ -973,40 +1045,52 @@ function clearPending(){pendingSC=null;uploadImg1=null;uploadImg2=null;render();
 async function submitMatch(){
   if(!checkAdmin('save a match')) return;
   if(!pendingSC) return;
-  const mid=gid();
   const winner=document.getElementById('ewinner')?.value||pendingSC.match?.winner||'';
   const mom=document.getElementById('emom')?.value||pendingSC.match?.mom||'';
-  const matchRec={
-    id:mid,
-    name:pendingSC._matchName||`${pendingSC.match?.team1||'?'} vs ${pendingSC.match?.team2||'?'}`,
-    type:pendingSC._matchType||'league',
-    date:pendingSC._matchDate||'',
-    winner,mom,
-    rawScorecard:pendingSC,
-    teamScores:{}
-  };
+
+  // Find existing upcoming match record
+  let matchRec=S.matches.find(m=>m.id===scorecardMatchId);
+  if(!matchRec){
+    matchRec={id:gid(),name:'Unknown Match',type:'league',date:'',teamScores:{}};
+    S.matches.push(matchRec);
+  }
+  matchRec.winner=winner;
+  matchRec.mom=mom;
+  matchRec.completed=true;
+  matchRec.rawScorecard=pendingSC;
+  matchRec.teamScores={};
+
   for(const t of S.teams){
     const cap=document.getElementById(`mc-${t.id}`)?.value||t.currentCaptain;
     const vc=document.getElementById(`mvc-${t.id}`)?.value||t.currentVc;
     const isWin=document.getElementById(`mw-${t.id}`)?.checked;
     const isAb=document.getElementById(`mab-${t.id}`)?.checked;
-    // Apply match-specific C/VC
     const prevC=t.currentCaptain, prevVC=t.currentVc;
     t.currentCaptain=cap; t.currentVc=vc;
-    const sc={...pendingSC,match:{...pendingSC.match,winner,mom},id:mid};
-    const{total,players}=processTeamMatch(t,sc,mid);
+    const sc={...pendingSC,match:{...pendingSC.match,winner,mom},id:matchRec.id};
+    const{total,players}=processTeamMatch(t,sc,matchRec.id);
     t.currentCaptain=prevC; t.currentVc=prevVC;
-    let extra=0, extraP=[];
+    let extra=0,extraP=[];
     if(isAb){extra+=40;extraP.push({name:'Match abandoned',pts:40,bd:[{l:'Abandoned +40',p:40,c:'bonus'}]});}
     else if(isWin){extra+=75;extraP.push({name:'Winning team',pts:75,bd:[{l:'Win bonus +75',p:75,c:'bonus'}]});}
     matchRec.teamScores[t.id]={total:total+extra,captain:cap,vc,players:[...players,...extraP]};
-    // Update team's permanent captain/vc
     t.currentCaptain=cap; t.currentVc=vc;
   }
-  S.matches.push(matchRec);
+
+  // Auto-mark predictions correct/wrong
+  for(const t of S.teams){
+    if(t.predictions?.[matchRec.id]){
+      t.predictions[matchRec.id].correct=
+        t.predictions[matchRec.id].prediction?.toLowerCase()===winner?.toLowerCase();
+    }
+  }
+
   pendingSC=null;
+  addView='menu';
+  scorecardMatchId=null;
   await saveS();
   nav('matches');
+  alert(`✅ Scores saved for "${matchRec.name}"! Predictions marked automatically.`);
 }
 
 // ═══════════════════════════════════════════
@@ -1439,32 +1523,34 @@ async function logSwap(tid){
 // ═══════════════════════════════════════════
 function vPredictions(){
   const todayStr = new Date().toISOString().split('T')[0];
-  const todayMatches = S.matches.filter(m => m.date === todayStr);
-  const pastMatches = [...S.matches].filter(m => m.date && m.date < todayStr).reverse();
-  const futureMatches = S.matches.filter(m => m.date && m.date > todayStr);
+  // Today's matches = upcoming (not completed) matches scheduled today
+  const todayMatches = S.matches.filter(m => !m.completed && m.date === todayStr);
+  // Future upcoming matches (not today)
+  const futureMatches = S.matches.filter(m => !m.completed && m.date && m.date > todayStr);
+  // Past completed matches
+  const pastMatches = [...S.matches].filter(m => m.completed).reverse();
 
   return`<div class="fb mb16"><h1>🎯 Predictions</h1></div>
-  <div class="alert al-info mb16">Predictions for today's match(es) only. Correct = <span class="pos">+30</span> | Wrong = <span class="neg">−20</span>.</div>
+  <div class="alert al-info mb16">Predictions open on match day (before result). Correct = <span class="pos">+30</span> | Wrong = <span class="neg">−20</span>.</div>
 
-  <!-- TODAY'S MATCHES -->
   ${todayMatches.length ? `
-    <h2 style="margin-bottom:12px">📅 Today — ${todayStr}${todayMatches.length>1?' ('+todayMatches.length+' games)':''}</h2>
+    <h2 style="margin-bottom:12px">📅 Today — ${todayStr}${todayMatches.length>1?` (${todayMatches.length} games)`:''}</h2>
     ${todayMatches.map(m=>predCardInput(m, true)).join('')}
-  ` : `<div class="alert al-warn mb16">No matches scheduled for today (${todayStr}). Predictions open on match day.</div>`}
+  ` : `<div class="alert al-warn mb16">No matches scheduled for today. ${futureMatches.length?`Next: <strong>${futureMatches[0].name}</strong> on ${futureMatches[0].date}`:'No upcoming matches yet.'}</div>`}
 
-  <!-- PAST MATCHES -->
+  ${futureMatches.length ? `
+    <div class="sep"></div>
+    <p class="muted small mt12 mb12">🔒 ${futureMatches.length} upcoming match${futureMatches.length>1?'es':''} — predictions will open on match day:</p>
+    ${futureMatches.map(m=>`<div class="card mb8" style="padding:10px 14px">
+      <div class="fb"><span style="font-weight:600">${m.name}</span><span class="muted small">${m.date}</span></div>
+    </div>`).join('')}
+  ` : ''}
+
   ${pastMatches.length ? `
     <div class="sep"></div>
     <h2 style="margin:16px 0 12px">📋 Past Matches — Results</h2>
     ${pastMatches.map(m=>predCardInput(m, false)).join('')}
-  ` : ''}
-
-  <!-- FUTURE MATCHES (upcoming, no input) -->
-  ${futureMatches.length ? `
-    <div class="sep"></div>
-    <p class="muted small mt12">🔒 ${futureMatches.length} upcoming match${futureMatches.length>1?'es':''} — predictions will open on match day.</p>
   ` : ''}`;
-}
 
 function predCardInput(m, canInput){
   const isToday = canInput;
@@ -1516,16 +1602,10 @@ async function savePred(tid,mid){
   const inp=document.getElementById(`pi-${tid}-${mid}`);
   const pred=inp?.value.trim();
   if(!pred){alert('Enter a team name');return;}
-
-  // Validate: only allow for today's matches
   const m=S.matches.find(x=>x.id===mid);
   const todayStr=new Date().toISOString().split('T')[0];
-  if(m?.date && m.date !== todayStr){
-    alert('Predictions can only be saved for today\'s matches.');
-    return;
-  }
-  if(m?.winner){alert('Result already known — prediction cannot be saved.');return;}
-
+  if(m?.date && m.date !== todayStr){alert('Predictions can only be saved for today\'s matches.');return;}
+  if(m?.completed){alert('Match already completed — prediction cannot be saved.');return;}
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   if(!t.predictions)t.predictions={};
   t.predictions[mid]={prediction:pred,savedAt:new Date().toISOString()};
