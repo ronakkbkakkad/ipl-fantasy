@@ -512,7 +512,7 @@ function vLeaderboard(){
   </div>
   <div class="card">
     <div class="tscroll"><table>
-      <thead><tr><th style="width:36px">#</th><th>Team</th><th>Owner</th><th>Played</th><th>Points</th><th>Avg/Match</th><th>Captain</th><th>VC</th></tr></thead>
+      <thead><tr><th style="width:36px">#</th><th>Team</th><th>Owner</th><th>Played</th><th>Points</th><th>Avg/Match</th><th>Captain</th><th>VC</th><th>IPL Team</th></tr></thead>
       <tbody>
         ${ranked.map((t,i)=>{
           const r=i+1, rCls=r<=3?`rank-${r}`:'', medal=r===1?'🥇':r===2?'🥈':r===3?'🥉':r;
@@ -526,6 +526,7 @@ function vLeaderboard(){
             <td class="muted">${avg}</td>
             <td><span class="badge b-gold">${t.currentCaptain||'—'}</span></td>
             <td><span class="badge b-blue">${t.currentVc||'—'}</span></td>
+            <td>${t.iplTeam?`<span class="badge b-orange">${t.iplTeam}</span>`:'<span class="muted small">—</span>'}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -564,15 +565,19 @@ function matchCard(m){
       <tbody>
         ${sc.map(({team,s})=>{
           const top=(s.players||[]).filter(p=>p.name!=='Prediction'&&p.name!=='Winning team'&&p.name!=='Match').sort((a,b)=>b.pts-a.pts)[0];
+          const hasOverride=(s.overrides||[]).length>0;
           return`<tr>
             <td style="font-weight:600">${team.name}</td>
             <td><span class="badge b-gold">${s.captain||'—'}</span> <span class="badge b-blue">${s.vc||'—'}</span></td>
             <td class="muted small">${top?`${top.name} (${top.pts})`:''}</td>
-            <td><span class="hl" style="font-weight:700;font-size:15px">${s.total}</span></td>
+            <td><span class="hl" style="font-weight:700;font-size:15px">${s.total}</span>${hasOverride?` <span class="badge b-orange" title="${(s.overrides||[]).map(o=>o.note).join(' | ')}" style="font-size:10px;cursor:help">✏️ edited</span>`:''}</td>
             <td><button class="btn btn-ghost btn-sm" onclick="toggleBD('bd-${m.id}-${team.id}')">Details</button>${isAdmin?`<button class="btn btn-ghost btn-sm" onclick="showEditScore('${m.id}','${team.id}')">✏️</button>`:''}</td>
           </tr>
           <tr id="bd-${m.id}-${team.id}" style="display:none"><td colspan="5" style="padding:0">
-            <div style="padding:10px;background:var(--bg2);margin:3px;border-radius:7px">${playerBD(s.players||[])}</div>
+            <div style="padding:10px;background:var(--bg2);margin:3px;border-radius:7px">
+              ${playerBD(s.players||[])}
+              ${hasOverride?`<div class="alert al-warn mt8 small">✏️ <strong>Manually edited.</strong> ${(s.overrides||[]).map(o=>`<span class="muted">${o.date}:</span> ${o.note} <span class="badge b-orange">${o.oldTotal}→${o.newTotal}</span>`).join(' · ')}</div>`:''}
+            </div>
           </td></tr>`;
         }).join('')}
       </tbody>
@@ -2090,41 +2095,78 @@ function showEditScore(matchId, teamId){
   const scores=m.teamScores?.[teamId];
   if(!scores) return;
 
+  // Show existing overrides if any
+  const prevOverrides=(scores.overrides||[]);
+  const overrideLog=prevOverrides.length
+    ?`<div class="sep"></div><h3>Override History</h3>${prevOverrides.map(o=>`
+      <div class="panel mb8 small">
+        <div class="fb"><span class="muted">${o.date||''}</span><span class="badge b-orange">Total: ${o.newTotal} (was ${o.oldTotal})</span></div>
+        <div style="margin-top:4px;color:var(--text2)">📝 ${o.note}</div>
+      </div>`).join('')}`
+    :'';
+
   addModal('edit-score-modal',`
     <div class="mhead"><h2>✏️ Edit Scores — ${t.name} · ${m.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('edit-score-modal')">✕</button></div>
-    <div class="alert al-warn mb12 small">Changes override AI-calculated values. Use to fix parsing errors.</div>
-    <div class="fg"><label>Match Total Override (leave blank to keep calculated)</label>
-      <input id="es-total" placeholder="${scores.total}" value="${scores.total}" type="number"/></div>
+    <div class="alert al-warn mb12 small">⚠️ Manual override. A note is <strong>required</strong> to explain the change.</div>
+
+    <div class="fg"><label>📝 Reason for override <span style="color:var(--red)">*required*</span></label>
+      <input id="es-note" placeholder="e.g. Parser missed Bumrah's 3rd wicket, adding 30 pts manually" />
+    </div>
+
     <div class="sep"></div>
     <h3>Player Points</h3>
+    <div class="alert al-info mb8 small">Edit individual player points. Total will be recalculated automatically, or set a manual total below.</div>
     ${(scores.players||[]).map(p=>`
-      <div class="fr mb8" style="align-items:center">
-        <div style="flex:1;font-size:13px">${p.name}${p.isC?' (C)':''}${p.isVC?' (VC)':''}</div>
-        <input id="ep-${p.name.replace(/\s/g,'_')}" type="number" value="${p.pts}" style="width:90px" />
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <div style="flex:1;font-size:13px">${p.name}${p.isC?' <span class="badge b-gold" style="font-size:10px">C</span>':''}${p.isVC?' <span class="badge b-blue" style="font-size:10px">VC</span>':''}</div>
+        <input id="ep-${p.name.replace(/[^a-zA-Z0-9]/g,'_')}" type="number" value="${p.pts}" style="width:85px" />
+        <span class="muted small" style="width:60px">(was ${p.pts})</span>
       </div>`).join('')}
-    <div class="mt12 fc g8">
-      <button class="btn btn-primary" onclick="saveEditedScores('${matchId}','${teamId}')">Save Changes</button>
+
+    <div class="sep"></div>
+    <div class="fg"><label>Match Total Override <span class="muted small">(leave blank to auto-sum from player pts above)</span></label>
+      <input id="es-total" type="number" placeholder="Auto-calculated" value="" style="width:140px"/>
+    </div>
+
+    <div class="fc g8 mt12">
+      <button class="btn btn-primary" onclick="saveEditedScores('${matchId}','${teamId}')">💾 Save Override</button>
       <button class="btn btn-ghost" onclick="closeModal('edit-score-modal')">Cancel</button>
-    </div>`);
+    </div>
+    ${overrideLog}`);
 }
 
 async function saveEditedScores(matchId, teamId){
+  const note=document.getElementById('es-note')?.value.trim();
+  if(!note){alert('⚠️ A reason/note is required before saving an override.');return;}
+
   const m=S.matches.find(x=>x.id===matchId);
   const scores=m?.teamScores?.[teamId];
   if(!scores) return;
+
+  const oldTotal=scores.total;
+
+  // Update player pts
   for(const p of (scores.players||[])){
-    const inp=document.getElementById(`ep-${p.name.replace(/\s/g,'_')}`);
-    if(inp) p.pts=parseInt(inp.value)||p.pts;
+    const inp=document.getElementById(`ep-${p.name.replace(/[^a-zA-Z0-9]/g,'_')}`);
+    if(inp){const v=parseInt(inp.value);if(!isNaN(v))p.pts=v;}
   }
+
+  // Total: manual override takes priority, else auto-sum
   const totalInp=document.getElementById('es-total');
-  const overrideTotal=totalInp?parseInt(totalInp.value):NaN;
-  if(!isNaN(overrideTotal)){
-    scores.total=overrideTotal;
-  } else {
-    scores.total=(scores.players||[]).reduce((a,p)=>a+p.pts,0);
-  }
+  const manualTotal=totalInp?.value.trim()!==''?parseInt(totalInp.value):NaN;
+  scores.total=!isNaN(manualTotal)?manualTotal:(scores.players||[]).reduce((a,p)=>a+p.pts,0);
+
+  // Store override audit log
+  if(!scores.overrides) scores.overrides=[];
+  scores.overrides.push({
+    date:new Date().toLocaleString(),
+    oldTotal,
+    newTotal:scores.total,
+    note
+  });
+
   await saveS();closeModal('edit-score-modal');render();
-  alert('✅ Scores updated.');
+  alert(`✅ Scores updated for ${S.teams.find(t=>t.id===teamId)?.name}. New total: ${scores.total}`);
 }
 
 async function reverseSwap(tid, swapIdx){
