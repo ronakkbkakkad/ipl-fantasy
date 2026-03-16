@@ -18,6 +18,7 @@ const firebaseConfig = {
   messagingSenderId: "947793342632",
   appId: "1:947793342632:web:03777efdb524958fa9929d"
 };
+
   // ─────────────────────────────────────────────────────────────────────────
 
   const app = initializeApp(firebaseConfig);
@@ -197,8 +198,9 @@ label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
       <button data-v="awards">🥇 Awards</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-      <span id="admin-badge" class="badge b-green" style="display:none;cursor:pointer" onclick="adminLogout()" title="Click to log out">🔑 Admin</span>
-      <span id="sync-indicator" class="badge b-gray" style="font-size:10px">●</span>
+      <button id="login-btn" class="btn btn-secondary btn-sm" onclick="adminLogin()" style="font-size:12px">🔒 Admin Login</button>
+      <button id="logout-btn" class="btn btn-ghost btn-sm" onclick="adminLogout()" style="display:none;font-size:12px;color:var(--green)">🔑 Admin ✕</button>
+      <span id="sync-indicator" class="badge b-gray" style="font-size:10px" title="Database connection">●</span>
     </div>
   </div>
 </header>
@@ -211,21 +213,39 @@ label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
 const ADMIN_PASSWORD = "ipl2025admin"; // ← change this to your desired password
 let isAdmin = false;
 
+function setAdminUI(on) {
+  const loginBtn = document.getElementById('login-btn');
+  const logoutBtn = document.getElementById('logout-btn');
+  if (loginBtn) loginBtn.style.display = on ? 'none' : 'inline-flex';
+  if (logoutBtn) logoutBtn.style.display = on ? 'inline-flex' : 'none';
+}
+
+function adminLogin() {
+  const pw = prompt("🔒 Enter admin password:");
+  if (pw === ADMIN_PASSWORD) {
+    isAdmin = true;
+    setAdminUI(true);
+    alert("✅ Logged in as admin. You can now add teams, matches, and more.");
+  } else if (pw !== null) {
+    alert("❌ Wrong password.");
+  }
+}
+
 function checkAdmin(action) {
   if (isAdmin) return true;
   const pw = prompt("🔒 Admin password required to " + action + ":");
   if (pw === ADMIN_PASSWORD) {
     isAdmin = true;
-    document.getElementById('admin-badge').style.display = 'inline-flex';
+    setAdminUI(true);
     return true;
   }
-  if (pw !== null) alert("Wrong password.");
+  if (pw !== null) alert("❌ Wrong password.");
   return false;
 }
 
 function adminLogout() {
   isAdmin = false;
-  document.getElementById('admin-badge').style.display = 'none';
+  setAdminUI(false);
   render();
 }
 
