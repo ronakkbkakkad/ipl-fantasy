@@ -1030,27 +1030,38 @@ async function doParseAI(){
       body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:3000,system:PARSE_PROMPT,messages:[{role:'user',content:userContent}]})
     });
 const data=await res.json();
-    const raw=data.content?.[0]?.text||'';
-    if(!raw){
-      if(btn)btn.innerHTML='🤖 Parse with AI';
-      alert('Empty response from API. Try again.');
-      return;
+const raw = data.content?.?.text || '';
+
+function extractFirstJSON(str) {
+  // Find first '{' or '['
+  const start = str.search(/[\[{]/);
+  if (start === -1) throw new Error('No JSON start token found');
+
+  // Try to incrementally parse growing substrings until JSON.parse succeeds
+  for (let end = str.length; end > start + 1; end--) {
+    const candidate = str.slice(start, end).trim();
+    try {
+      return JSON.parse(candidate);
+    } catch (e) {
+      // keep shrinking from the right
     }
-    if(raw.startsWith('API_ERROR:') || raw.startsWith('WORKER_ERROR:') || raw.startsWith('GEMINI_ERROR:')){
-      if(btn)btn.innerHTML='🤖 Parse with AI';
-      alert('Error:\n\n'+raw);
-      return;
-    }
-    const clean=raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
-    const parsed=JSON.parse(clean);
-    pendingSC={...parsed,_matchName:mn,_matchType:mtype,_matchDate:mdate};
-    uploadImg1=null;uploadImg2=null;uploadType1=null;uploadType2=null;
-    render();
-  }catch(e){
-    if(btn)btn.innerHTML='🤖 Parse with AI';
-    alert('Parse failed: '+e.message+'\n\nTry again or check your scorecard format.');
   }
+  throw new Error('Could not parse JSON from model output');
 }
+
+let parsed;
+try {
+  parsed = extractFirstJSON(raw);
+} catch (e) {
+  throw new Error(`Model did not return valid JSON: ${e.message}`);
+}
+
+pendingSC = {
+  ...parsed,
+  matchName: mn,
+  matchType: mtype,
+  matchDate: mdate
+};
 
 function clearPending(){pendingSC=null;uploadImg1=null;uploadImg2=null;render();}
 
