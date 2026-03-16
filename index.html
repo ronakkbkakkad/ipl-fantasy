@@ -18,7 +18,6 @@ const firebaseConfig = {
   messagingSenderId: "947793342632",
   appId: "1:947793342632:web:03777efdb524958fa9929d"
 };
-
   // ─────────────────────────────────────────────────────────────────────────
 
   const app = initializeApp(firebaseConfig);
@@ -191,11 +190,12 @@ label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
     <nav id="nav">
       <button class="active" data-v="leaderboard">🏆 Leaderboard</button>
       <button data-v="matches">📊 Matches</button>
-      <button data-v="add">➕ Add Match</button>
-      <button data-v="teams">👥 Teams</button>
-      <button data-v="swaps">🔄 Swaps</button>
+      <button data-v="points">📈 Points</button>
       <button data-v="predictions">🎯 Predictions</button>
-      <button data-v="awards">🥇 Awards</button>
+      <button data-v="swaps">🔄 Swaps</button>
+      <button class="admin-only" data-v="add" style="display:none">➕ Add Match</button>
+      <button class="admin-only" data-v="teams" style="display:none">👥 Teams</button>
+      <button class="admin-only" data-v="awards" style="display:none">🥇 Awards</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
       <button id="login-btn" class="btn btn-secondary btn-sm" onclick="adminLogin()" style="font-size:12px">🔒 Admin Login</button>
@@ -218,6 +218,8 @@ function setAdminUI(on) {
   const logoutBtn = document.getElementById('logout-btn');
   if (loginBtn) loginBtn.style.display = on ? 'none' : 'inline-flex';
   if (logoutBtn) logoutBtn.style.display = on ? 'inline-flex' : 'none';
+  // Show/hide admin-only nav tabs
+  document.querySelectorAll('.admin-only').forEach(el => el.style.display = on ? '' : 'none');
 }
 
 function adminLogin() {
@@ -561,11 +563,12 @@ function render(){
   switch(curView){
     case 'leaderboard': app.innerHTML=vLeaderboard(); break;
     case 'matches': app.innerHTML=vMatches(); break;
-    case 'add': app.innerHTML=vAdd(); break;
-    case 'teams': app.innerHTML=vTeams(); break;
+    case 'points': app.innerHTML=vPoints(); break;
+    case 'add': app.innerHTML=isAdmin?vAdd():'<div class="empty"><div class="icon">🔒</div><h2>Admin only</h2></div>'; break;
+    case 'teams': app.innerHTML=isAdmin?vTeams():'<div class="empty"><div class="icon">🔒</div><h2>Admin only</h2></div>'; break;
     case 'swaps': app.innerHTML=vSwaps(); break;
     case 'predictions': app.innerHTML=vPredictions(); break;
-    case 'awards': app.innerHTML=vAwards(); break;
+    case 'awards': app.innerHTML=isAdmin?vAwards():'<div class="empty"><div class="icon">🔒</div><h2>Admin only</h2></div>'; break;
     default: app.innerHTML=vLeaderboard();
   }
 }
@@ -673,6 +676,98 @@ function playerBD(players){
 
 function toggleBD(id){const e=document.getElementById(id);if(e)e.style.display=e.style.display==='none'?'':'none';}
 function delMatch(id){if(!checkAdmin('delete a match'))return;if(!confirm('Delete this match and all its scores?'))return;S.matches=S.matches.filter(m=>m.id!==id);saveS();render();}
+
+// ═══════════════════════════════════════════
+// VIEW: POINTS (match-wise per team + player)
+// ═══════════════════════════════════════════
+let pointsView = { teamId: null, matchId: null };
+
+function vPoints(){
+  if(!S.matches.length) return`<div class="empty"><div class="icon">📈</div><h2>No matches yet</h2><p>Points will appear here once matches are added</p></div>`;
+  if(!S.teams.length) return`<div class="empty"><div class="icon">👥</div><h2>No teams yet</h2></div>`;
+
+  const selTeam = pointsView.teamId || S.teams[0].id;
+  const selMatch = pointsView.matchId || S.matches[S.matches.length-1].id;
+  const team = S.teams.find(t=>t.id===selTeam);
+  const match = S.matches.find(m=>m.id===selMatch);
+  const scores = match?.teamScores?.[selTeam];
+
+  // Build cumulative totals per match per team for the chart row
+  const matchList = [...S.matches];
+
+  return`<div class="fb mb16"><h1>📈 Points Breakdown</h1></div>
+
+  <!-- Team selector -->
+  <div class="card mb12">
+    <h3>Select Team</h3>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      ${S.teams.map(t=>{
+        const tot=teamTotal(t);
+        const active=t.id===selTeam;
+        return`<button onclick="pointsView.teamId='${t.id}';pointsView.matchId=null;render()" style="padding:8px 14px;border-radius:8px;border:1px solid ${active?'var(--orange)':'var(--border2)'};background:${active?'var(--orange-dim)':'var(--bg3)'};color:${active?'var(--orange)':'var(--text1)'};cursor:pointer;font-size:13px;font-weight:${active?'700':'400'}">
+          ${t.name} <span style="color:var(--text2);font-size:11px">${tot}pts</span>
+        </button>`;
+      }).join('')}
+    </div>
+  </div>
+
+  <!-- Match-wise summary for selected team -->
+  <div class="card mb12">
+    <h2>${team?.name} — Match-wise Points</h2>
+    <div class="tscroll">
+      <table>
+        <thead><tr><th>#</th><th>Match</th><th>Date</th><th>C</th><th>VC</th><th>Points</th><th></th></tr></thead>
+        <tbody>
+          ${matchList.map((m,i)=>{
+            const s=m.teamScores?.[selTeam];
+            const active=m.id===selMatch;
+            if(!s) return`<tr><td class="muted">${i+1}</td><td>${m.name}</td><td class="muted">${m.date||''}</td><td colspan="3" class="muted small">—</td><td></td></tr>`;
+            return`<tr style="background:${active?'var(--orange-dim)':''}">
+              <td class="muted">${i+1}</td>
+              <td style="font-weight:600">${m.name}</td>
+              <td class="muted small">${m.date||''}</td>
+              <td><span class="badge b-gold" style="font-size:10px">${s.captain||'—'}</span></td>
+              <td><span class="badge b-blue" style="font-size:10px">${s.vc||'—'}</span></td>
+              <td><span class="${s.total>=0?'pos':'neg'}" style="font-weight:700;font-size:15px">${s.total}</span></td>
+              <td><button class="btn btn-ghost btn-xs" onclick="pointsView.matchId='${m.id}';pointsView.teamId='${selTeam}';render()">Drill ▾</button></td>
+            </tr>`;
+          }).join('')}
+          <tr style="border-top:2px solid var(--border2)">
+            <td colspan="5" style="font-weight:700;color:var(--text2)">Total</td>
+            <td><span class="hl" style="font-weight:700;font-size:16px">${teamTotal(team)}</span></td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Player drill-down for selected match -->
+  ${scores ? `<div class="card">
+    <div class="fb mb12">
+      <h2>${team?.name} — ${match?.name}</h2>
+      <span class="badge b-blue">${match?.date||''}</span>
+    </div>
+    ${match?.winner?`<div class="alert al-success mb12">🏆 Winner: <strong>${match.winner}</strong>${match.mom?` · MOM: <strong>${match.mom}</strong>`:''}</div>`:''}
+    <div class="tscroll">
+      <table>
+        <thead><tr><th>Player</th><th>Role</th><th>Breakdown</th><th>Points</th></tr></thead>
+        <tbody>
+          ${[...(scores.players||[])].sort((a,b)=>b.pts-a.pts).map(p=>`<tr>
+            <td style="font-weight:600">${p.name}${p.isC?' <span class="badge b-gold">C</span>':''}${p.isVC?' <span class="badge b-blue">VC</span>':''}</td>
+            <td>${p.bd?.some(b=>b.c==='bat')?'🏏':p.bd?.some(b=>b.c==='bowl')?'⚡':p.bd?.some(b=>b.c==='field')?'🧤':'—'}</td>
+            <td class="xs muted" style="max-width:300px">${(p.bd||[]).map(b=>`<span style="color:${b.p<0?'var(--red)':'var(--text2)'}">${b.l}(${b.p>0?'+':''}${b.p})</span>`).join(' · ')}</td>
+            <td class="${p.pts>=0?'pos':'neg'}" style="font-weight:700">${p.pts>0?'+':''}${p.pts}</td>
+          </tr>`).join('')}
+          <tr style="border-top:2px solid var(--border2)">
+            <td colspan="3" style="font-weight:700;color:var(--text2)">Match Total</td>
+            <td><span class="hl" style="font-weight:700;font-size:15px">${scores.total}</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>` : `<div class="alert al-info">Select a match row above (click "Drill ▾") to see player-level breakdown.</div>`}`;
+}
 
 // ═══════════════════════════════════════════
 // VIEW: ADD MATCH
@@ -1016,27 +1111,91 @@ async function delTeam(tid){
 // ═══════════════════════════════════════════
 // VIEW: SWAPS
 // ═══════════════════════════════════════════
+// Rules:
+//   - 1 FREE daily swap per match day (if 2 games that day → 2 free swaps)
+//   - Free swaps do NOT count against the 15 season total
+//   - 15 PAID player swaps total across the season
+//   - 5 captain swaps, 5 VC swaps (season total, no daily free for C/VC)
+//   - Wrong swap = −300 pts
+
+function getMatchDates() {
+  // Returns map: dateStr → array of match ids
+  const map = {};
+  for (const m of S.matches) {
+    if (!m.date) continue;
+    if (!map[m.date]) map[m.date] = [];
+    map[m.date].push(m.id);
+  }
+  return map;
+}
+
+function getDailyFreeSwapsUsed(team) {
+  // Count free swaps used per date
+  const used = {};
+  for (const h of (team.swaps?.history || [])) {
+    if (h.isFree && h.matchDate) {
+      used[h.matchDate] = (used[h.matchDate] || 0) + 1;
+    }
+  }
+  return used;
+}
+
+function getDailyFreeSwapsAllowed(dateStr) {
+  // Number of games on that date = number of free swaps allowed
+  const dateMap = getMatchDates();
+  return (dateMap[dateStr] || []).length;
+}
+
+function canUseFreeSwap(team, dateStr) {
+  if (!dateStr) return false;
+  const allowed = getDailyFreeSwapsAllowed(dateStr);
+  if (allowed === 0) return false;
+  const usedMap = getDailyFreeSwapsUsed(team);
+  return (usedMap[dateStr] || 0) < allowed;
+}
+
 function vSwaps(){
   return`<div class="fb mb16"><h1>Swap Tracker</h1></div>
-  <div class="alert al-warn mb16">Rules: 15 player swaps · 5 captain swaps · 5 VC swaps per team. <strong>Wrong swap = −300 pts.</strong></div>
+  <div class="alert al-info mb12">
+    <strong>Swap Rules:</strong> Each match day gives 1 free swap (2 if 2 games that day) — free swaps don't count against your season total.
+    Season limits: <strong>15 player swaps</strong> · 5 captain · 5 VC. <strong>Wrong swap = −300 pts.</strong>
+  </div>
   ${S.teams.map(t=>swapCard(t)).join('')}
   <div id="mc"></div>`;
 }
+
 function swapCard(t){
-  const sw=t.swaps||{player:0,captain:0,vc:0,history:[]};
-  const pl=15-(sw.player||0),cl=5-(sw.captain||0),vl=5-(sw.vc||0);
+  const sw = t.swaps || {player:0, captain:0, vc:0, history:[]};
+  const freeUsedMap = getDailyFreeSwapsUsed(t);
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayAllowed = getDailyFreeSwapsAllowed(todayStr);
+  const todayUsed = freeUsedMap[todayStr] || 0;
+  const todayFreeLeft = Math.max(0, todayAllowed - todayUsed);
+
+  const totalFreeUsed = Object.values(freeUsedMap).reduce((a,b)=>a+b,0);
+  const paidUsed = Math.max(0, (sw.player||0) - 0); // paid = non-free player swaps
+
   return`<div class="card mb12">
-    <div class="fb mb12"><span style="font-weight:700">${t.name}</span><button class="btn btn-primary btn-sm" onclick="showSwapModal('${t.id}')">+ Log Swap</button></div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">
-      ${[{l:'Player Swaps',u:sw.player||0,max:15},{l:'Captain Swaps',u:sw.captain||0,max:5},{l:'VC Swaps',u:sw.vc||0,max:5}].map(x=>`
+    <div class="fb mb12">
+      <span style="font-weight:700">${t.name}</span>
+      ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="showSwapModal('${t.id}')">+ Log Swap</button>`:''}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+      <div class="stat-card">
+        <div class="val ${todayFreeLeft===0?'neg':'pos'}">${todayFreeLeft}</div>
+        <div class="lbl">Free Today</div>
+        <div class="pbar"><div class="pfill" style="width:${todayAllowed>0?(todayFreeLeft/todayAllowed)*100:0}%"></div></div>
+      </div>
+      ${[{l:'Season Swaps',u:sw.player||0,max:15},{l:'Captain Swaps',u:sw.captain||0,max:5},{l:'VC Swaps',u:sw.vc||0,max:5}].map(x=>`
         <div class="stat-card"><div class="val ${x.max-x.u<=1?'neg':''}">${x.max-x.u}/${x.max}</div><div class="lbl">${x.l} Left</div>
         <div class="pbar"><div class="pfill" style="width:${((x.max-x.u)/x.max)*100}%"></div></div></div>`).join('')}
     </div>
     ${(sw.history||[]).length?`<h3>History</h3><div class="tscroll"><table>
-      <thead><tr><th>Type</th><th>Out</th><th>In</th><th>Match</th><th>Status</th></tr></thead>
+      <thead><tr><th>Type</th><th>Out</th><th>In</th><th>Match</th><th>Kind</th><th>Status</th></tr></thead>
       <tbody>${[...(sw.history||[])].reverse().map(s=>`<tr>
         <td><span class="badge ${s.type==='player'?'b-blue':s.type==='captain'?'b-gold':'b-purple'}">${s.type}</span></td>
         <td class="muted">${s.from||'—'}</td><td>${s.to||'—'}</td><td class="muted small">${s.match||'—'}</td>
+        <td>${s.isFree?'<span class="badge b-green">Free</span>':'<span class="badge b-gray">Paid</span>'}</td>
         <td>${s.isWrong?'<span class="badge b-red">WRONG −300</span>':'<span class="badge b-green">Valid</span>'}</td>
       </tr>`).join('')}</tbody>
     </table></div>`:'<p class="muted small">No swaps logged</p>'}
@@ -1045,7 +1204,13 @@ function swapCard(t){
 
 function showSwapModal(tid){
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
+  const todayStr=new Date().toISOString().split('T')[0];
+  const freeAvailable=canUseFreeSwap(t, todayStr);
+  const todayAllowed=getDailyFreeSwapsAllowed(todayStr);
+
   addModal('swap-modal',`<div class="mhead"><h2>Log Swap — ${t.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('swap-modal')">✕</button></div>
+  ${todayAllowed===0?'<div class="alert al-warn mb12">No matches scheduled today — free swap not available.</div>':''}
+  ${freeAvailable?`<div class="alert al-success mb12">✅ Free swap available today (${todayAllowed} game${todayAllowed>1?'s':''} today).</div>`:'<div class="alert al-info mb12">No free swaps left today — this will use a season swap.</div>'}
   <div class="fg"><label>Swap Type</label>
     <select id="sw-type"><option value="player">Player Swap</option><option value="captain">Captain Swap</option><option value="vc">Vice-Captain Swap</option></select></div>
   <div class="fr">
@@ -1056,6 +1221,7 @@ function showSwapModal(tid){
   <div class="fg"><label>For Match</label>
     <select id="sw-match"><option value="">Next match</option>${S.matches.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}</select></div>
   <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sw-wrong" style="width:auto" /> Mark as WRONG swap (−300 pts penalty)</label></div>
+  <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sw-free" style="width:auto" ${freeAvailable?'checked':''} ${!freeAvailable?'disabled':''}/> Use as free daily swap ${!freeAvailable?'(none left today)':''}</label></div>
   <button class="btn btn-primary" onclick="logSwap('${tid}')">Log Swap</button>`);
 }
 
@@ -1067,13 +1233,34 @@ async function logSwap(tid){
   const to=document.getElementById('sw-to')?.value.trim();
   const mid=document.getElementById('sw-match')?.value;
   const isWrong=document.getElementById('sw-wrong')?.checked;
+  const wantFree=document.getElementById('sw-free')?.checked;
   if(!to){alert('Enter the player being swapped in');return;}
   if(!t.swaps)t.swaps={player:0,captain:0,vc:0,history:[]};
+
+  const todayStr=new Date().toISOString().split('T')[0];
+  const matchDate = S.matches.find(m=>m.id===mid)?.date || todayStr;
+
+  // Determine if this is a free swap
+  let isFree = false;
+  if(!isWrong && type==='player' && wantFree) {
+    if(canUseFreeSwap(t, matchDate)){
+      isFree = true;
+    } else {
+      alert(`No free swaps left for ${matchDate}.`);
+      return;
+    }
+  }
+
+  // Check paid season limits
   const limits={player:15,captain:5,vc:5};
-  if(!isWrong&&(t.swaps[type]||0)>=limits[type]){alert(`No ${type} swaps remaining!`);return;}
-  if(!isWrong) t.swaps[type]=(t.swaps[type]||0)+1;
+  if(!isWrong && !isFree){
+    if((t.swaps[type]||0)>=limits[type]){alert(`No ${type} swaps remaining this season!`);return;}
+    t.swaps[type]=(t.swaps[type]||0)+1;
+  }
+
   const mname=S.matches.find(m=>m.id===mid)?.name||'Next match';
-  t.swaps.history.push({type,from,to,match:mname,matchId:mid,isWrong,date:new Date().toISOString()});
+  t.swaps.history.push({type,from,to,match:mname,matchId:mid,matchDate,isFree,isWrong,date:new Date().toISOString()});
+
   if(!isWrong){
     if(type==='player'){
       t.players=t.players.filter(p=>p.name!==from);
@@ -1090,31 +1277,76 @@ async function logSwap(tid){
 // VIEW: PREDICTIONS
 // ═══════════════════════════════════════════
 function vPredictions(){
-  return`<div class="fb mb16"><h1>Match Predictions</h1></div>
-  <div class="alert al-info mb16">Submit before each match. Correct = +30 | Wrong = −20.</div>
-  ${!S.matches.length?'<p class="muted">No matches yet — add a match first.</p>':
-  [...S.matches].reverse().map(m=>predCard(m)).join('')}`;
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayMatches = S.matches.filter(m => m.date === todayStr);
+  const pastMatches = [...S.matches].filter(m => m.date && m.date < todayStr).reverse();
+  const futureMatches = S.matches.filter(m => m.date && m.date > todayStr);
+
+  return`<div class="fb mb16"><h1>🎯 Predictions</h1></div>
+  <div class="alert al-info mb16">Predictions for today's match(es) only. Correct = <span class="pos">+30</span> | Wrong = <span class="neg">−20</span>.</div>
+
+  <!-- TODAY'S MATCHES -->
+  ${todayMatches.length ? `
+    <h2 style="margin-bottom:12px">📅 Today — ${todayStr}${todayMatches.length>1?' ('+todayMatches.length+' games)':''}</h2>
+    ${todayMatches.map(m=>predCardInput(m, true)).join('')}
+  ` : `<div class="alert al-warn mb16">No matches scheduled for today (${todayStr}). Predictions open on match day.</div>`}
+
+  <!-- PAST MATCHES -->
+  ${pastMatches.length ? `
+    <div class="sep"></div>
+    <h2 style="margin:16px 0 12px">📋 Past Matches — Results</h2>
+    ${pastMatches.map(m=>predCardInput(m, false)).join('')}
+  ` : ''}
+
+  <!-- FUTURE MATCHES (upcoming, no input) -->
+  ${futureMatches.length ? `
+    <div class="sep"></div>
+    <p class="muted small mt12">🔒 ${futureMatches.length} upcoming match${futureMatches.length>1?'es':''} — predictions will open on match day.</p>
+  ` : ''}`;
 }
 
-function predCard(m){
+function predCardInput(m, canInput){
+  const isToday = canInput;
   return`<div class="card mb12">
-    <div class="fb mb12"><span style="font-weight:700">${m.name}</span>
-      ${m.winner?`<span class="badge b-green">Winner: ${m.winner}</span>`:'<span class="badge b-orange">Result TBD</span>'}
+    <div class="fb mb12">
+      <div class="fc g8">
+        <span style="font-weight:700">${m.name}</span>
+        ${m.type==='final'?'<span class="badge b-gold">Final</span>':m.type==='semifinal'?'<span class="badge b-purple">SF</span>':'<span class="badge b-blue">League</span>'}
+      </div>
+      <div class="fc g8">
+        <span class="muted small">${m.date||''}</span>
+        ${m.winner?`<span class="badge b-green">✓ ${m.winner}</span>`:'<span class="badge b-orange">TBD</span>'}
+      </div>
     </div>
     <div class="tscroll"><table>
-      <thead><tr><th>Team</th><th>Prediction</th><th>Actual Result</th><th>Points</th></tr></thead>
+      <thead><tr><th>Fantasy Team</th><th>Prediction</th><th>Result</th><th>Pts</th></tr></thead>
       <tbody>${S.teams.map(t=>{
         const p=t.predictions?.[m.id];
         const correct=p&&m.winner?p.prediction?.toLowerCase()===m.winner?.toLowerCase():null;
+        const canEdit = isToday && !m.winner; // only editable today, before result
         return`<tr>
           <td style="font-weight:600">${t.name}</td>
-          <td>${p?`<span class="badge b-blue">${p.prediction}</span>`:`<div class="fc g6"><input id="pi-${t.id}-${m.id}" placeholder="e.g. MI" style="width:90px" /><button class="btn btn-secondary btn-xs" onclick="savePred('${t.id}','${m.id}')">Save</button></div>`}</td>
+          <td>${p
+            ? `<span class="badge b-blue">${p.prediction}</span>${canEdit&&isAdmin?` <button class="btn btn-ghost btn-xs" onclick="clearPred('${t.id}','${m.id}')">✕</button>`:''}`
+            : (canEdit && isAdmin
+                ? `<div class="fc g6"><input id="pi-${t.id}-${m.id}" placeholder="e.g. MI" style="width:80px" /><button class="btn btn-secondary btn-xs" onclick="savePred('${t.id}','${m.id}')">Save</button></div>`
+                : `<span class="muted small">—</span>`)
+          }</td>
           <td>${m.winner?`<span class="badge ${correct?'b-green':'b-red'}">${m.winner}</span>`:'—'}</td>
-          <td class="${correct===true?'pos':correct===false?'neg':''}" style="font-weight:600">${correct===true?'+30':correct===false?'−20':'—'}</td>
+          <td class="${correct===true?'pos':correct===false?'neg':''}" style="font-weight:600">
+            ${correct===true?'+30':correct===false?'−20':'—'}
+          </td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>
   </div>`;
+}
+
+async function clearPred(tid, mid){
+  if(!checkAdmin('clear a prediction')) return;
+  const t=S.teams.find(x=>x.id===tid);if(!t)return;
+  if(t.predictions) delete t.predictions[mid];
+  await saveS(); render();
 }
 
 async function savePred(tid,mid){
@@ -1122,14 +1354,19 @@ async function savePred(tid,mid){
   const inp=document.getElementById(`pi-${tid}-${mid}`);
   const pred=inp?.value.trim();
   if(!pred){alert('Enter a team name');return;}
+
+  // Validate: only allow for today's matches
+  const m=S.matches.find(x=>x.id===mid);
+  const todayStr=new Date().toISOString().split('T')[0];
+  if(m?.date && m.date !== todayStr){
+    alert('Predictions can only be saved for today\'s matches.');
+    return;
+  }
+  if(m?.winner){alert('Result already known — prediction cannot be saved.');return;}
+
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   if(!t.predictions)t.predictions={};
   t.predictions[mid]={prediction:pred,savedAt:new Date().toISOString()};
-  // Check if result already known
-  const match=S.matches.find(m=>m.id===mid);
-  if(match?.winner){
-    t.predictions[mid].correct=pred.toLowerCase()===match.winner.toLowerCase();
-  }
   await saveS();render();
 }
 
