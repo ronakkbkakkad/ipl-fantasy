@@ -10,16 +10,14 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-  // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────
-const firebaseConfig = {
-  apiKey: "AIzaSyCZoXw-bl1wLQ3nolBeqnyQj6Br7rBrETU",
-  authDomain: "ipl-fantasy-9.firebaseapp.com",
-  projectId: "ipl-fantasy-9",
-  storageBucket: "ipl-fantasy-9.firebasestorage.app",
-  messagingSenderId: "947793342632",
-  appId: "1:947793342632:web:03777efdb524958fa9929d"
-};
-  // ─────────────────────────────────────────────────────────────────────────
+  const firebaseConfig = {
+    apiKey: "AIzaSyCZoXw-bl1wLQ3nolBeqnyQj6Br7rBrETU",
+    authDomain: "ipl-fantasy-9.firebaseapp.com",
+    projectId: "ipl-fantasy-9",
+    storageBucket: "ipl-fantasy-9.firebasestorage.app",
+    messagingSenderId: "947793342632",
+    appId: "1:947793342632:web:03777efdb524958fa9929d"
+  };
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
@@ -55,8 +53,6 @@ const firebaseConfig = {
 }
 body{background:var(--bg0);color:var(--text1);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;font-size:14px;line-height:1.5}
 a{color:var(--orange);text-decoration:none}
-
-/* ── HEADER ── */
 header{background:var(--bg1);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
 .header-inner{display:flex;align-items:center;gap:20px;max-width:1280px;margin:0 auto;padding:0 16px;height:52px}
 .logo{font-size:17px;font-weight:700;letter-spacing:-0.3px;white-space:nowrap;flex-shrink:0}
@@ -66,32 +62,22 @@ nav::-webkit-scrollbar{display:none}
 nav button{background:none;border:none;color:var(--text2);padding:5px 11px;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap;transition:.15s}
 nav button:hover{background:var(--bg3);color:var(--text1)}
 nav button.active{background:var(--bg3);color:var(--orange);font-weight:600}
-
-/* ── LAYOUT ── */
 main{max-width:1280px;margin:0 auto;padding:20px 16px}
-
-/* ── CARDS ── */
 .card{background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px}
 .panel{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px}
 .inset{background:var(--bg2);border-radius:6px;padding:10px}
-
-/* ── TYPE ── */
 h1{font-size:20px;font-weight:600;margin-bottom:4px}
 h2{font-size:15px;font-weight:600;margin-bottom:12px}
 h3{font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text2)}
 .muted{color:var(--text2)}
 .small{font-size:12px}
 .xs{font-size:11px}
-
-/* ── TABLE ── */
 .tscroll{overflow-x:auto}
 table{width:100%;border-collapse:collapse}
 th{text-align:left;font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;padding:6px 8px;border-bottom:1px solid var(--border)}
 td{padding:7px 8px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle}
 tr:last-child td{border-bottom:none}
 tbody tr:hover td{background:rgba(255,255,255,.015)}
-
-/* ── BADGES ── */
 .badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:600;line-height:1.4}
 .b-orange{background:var(--orange-dim);color:var(--orange)}
 .b-blue{background:var(--blue-dim);color:var(--blue)}
@@ -100,8 +86,6 @@ tbody tr:hover td{background:rgba(255,255,255,.015)}
 .b-gold{background:var(--gold-dim);color:var(--gold)}
 .b-purple{background:var(--purple-dim);color:var(--purple)}
 .b-gray{background:var(--bg3);color:var(--text2)}
-
-/* ── FORMS ── */
 input,select,textarea{background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px;width:100%;outline:none;transition:.15s}
 input:focus,select:focus,textarea:focus{border-color:var(--orange)}
 input::placeholder{color:var(--text3)}
@@ -111,8 +95,6 @@ label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
 .fg:last-child{margin-bottom:0}
 .fr{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .fr3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
-
-/* ── BUTTONS ── */
 .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:6px;border:1px solid transparent;cursor:pointer;font-size:13px;font-weight:500;transition:.15s;line-height:1}
 .btn:active{transform:scale(.98)}
 .btn-primary{background:var(--orange);color:#fff;border-color:var(--orange)}
@@ -125,61 +107,39 @@ label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
 .btn-danger:hover{background:rgba(239,68,68,.2)}
 .btn-sm{padding:4px 10px;font-size:12px}
 .btn-xs{padding:2px 7px;font-size:11px}
-
-/* ── STAT CARDS ── */
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:16px}
 .stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center}
 .stat-card .val{font-size:22px;font-weight:700;color:var(--orange);line-height:1.1}
 .stat-card .lbl{font-size:11px;color:var(--text2);margin-top:3px}
-
-/* ── ALERT ── */
 .alert{padding:9px 12px;border-radius:7px;font-size:13px;margin-bottom:12px;line-height:1.4}
 .al-info{background:var(--blue-dim);border:1px solid rgba(59,130,246,.2);color:#93c5fd}
 .al-success{background:var(--green-dim);border:1px solid rgba(34,197,94,.2);color:#86efac}
 .al-warn{background:var(--gold-dim);border:1px solid rgba(245,158,11,.2);color:#fcd34d}
 .al-danger{background:var(--red-dim);border:1px solid rgba(239,68,68,.2);color:#fca5a5}
-
-/* ── PROGRESS ── */
 .pbar{height:4px;background:var(--bg4);border-radius:2px;overflow:hidden;margin-top:6px}
 .pfill{height:100%;background:var(--orange);border-radius:2px;transition:width .3s}
-
-/* ── COLORS ── */
 .pos{color:var(--green)}.neg{color:var(--red)}.hl{color:var(--orange)}
 .rank-1{color:var(--gold)}.rank-2{color:#9ca3af}.rank-3{color:#d97706}
-
-/* ── SPINNER ── */
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border2);border-top-color:var(--orange);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-
-/* ── SUB-TABS ── */
 .stabs{display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap}
 .stab{padding:4px 11px;border-radius:20px;border:1px solid var(--border);background:none;color:var(--text2);font-size:12px;cursor:pointer;transition:.15s}
 .stab:hover{border-color:var(--border3)}
 .stab.active{background:var(--orange);color:#fff;border-color:var(--orange)}
-
-/* ── MODAL ── */
 .mbackdrop{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px}
 .mbox{background:var(--bg1);border:1px solid var(--border2);border-radius:12px;padding:20px;width:100%;max-width:580px;max-height:85vh;overflow-y:auto}
 .mhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
-
-/* ── UTIL ── */
 .flex{display:flex}.fb{display:flex;justify-content:space-between;align-items:center}.fc{display:flex;align-items:center}
 .g4{gap:4px}.g6{gap:6px}.g8{gap:8px}.g12{gap:12px}.g16{gap:16px}
 .mb4{margin-bottom:4px}.mb8{margin-bottom:8px}.mb12{margin-bottom:12px}.mb16{margin-bottom:16px}.mb20{margin-bottom:20px}
 .mt4{margin-top:4px}.mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}
 .w100{width:100%}
 .sep{border-top:1px solid var(--border);margin:12px 0}
-
-/* ── EMPTY STATE ── */
 .empty{text-align:center;padding:48px 20px}
 .empty .icon{font-size:44px;margin-bottom:12px}
 .empty h2{margin-bottom:6px}
 .empty p{color:var(--text2);margin-bottom:16px}
-
-/* ── RANK MEDALS ── */
 .medal{font-size:18px;line-height:1}
-
-/* ── UPLOAD ZONE ── */
 .upload-zone{border:1.5px dashed var(--border2);border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:.15s}
 .upload-zone:hover{border-color:var(--orange);background:var(--orange-dim)}
 </style>
@@ -209,11 +169,8 @@ label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
 <main id="app">Loading...</main>
 
 <script>
-// ═══════════════════════════════════════════
-// CONFIG — set both values before deploying
-// ═══════════════════════════════════════════
-const ADMIN_PASSWORD = "ipl2025admin"; // ← your admin password
-const WORKER_URL = "https://ipl-fantasy-proxy.ronakbkakkad.workers.dev"; // ← e.g. https://ipl-fantasy-proxy.yourname.workers.dev
+const ADMIN_PASSWORD = "ipl2025admin";
+const WORKER_URL = "https://ipl-fantasy-proxy.ronakbkakkad.workers.dev";
 
 let isAdmin = false;
 
@@ -222,7 +179,6 @@ function setAdminUI(on) {
   const logoutBtn = document.getElementById('logout-btn');
   if (loginBtn) loginBtn.style.display = on ? 'none' : 'inline-flex';
   if (logoutBtn) logoutBtn.style.display = on ? 'inline-flex' : 'none';
-  // Show/hide admin-only nav tabs
   document.querySelectorAll('.admin-only').forEach(el => el.style.display = on ? '' : 'none');
 }
 
@@ -255,9 +211,6 @@ function adminLogout() {
   render();
 }
 
-// ═══════════════════════════════════════════
-// STATE
-// ═══════════════════════════════════════════
 let S = null;
 let curView = 'leaderboard';
 let pendingSC = null;
@@ -303,33 +256,21 @@ async function saveS() {
   }
 }
 
-// ═══════════════════════════════════════════
-// FUZZY NAME MATCHING
-// ═══════════════════════════════════════════
 function fuzzyMatch(name1, name2) {
   const n1 = name1.toLowerCase().trim();
   const n2 = name2.toLowerCase().trim();
   if (n1 === n2) return true;
-
-  // Check if one is abbreviation of the other: "V Kohli" vs "Virat Kohli"
   const parts1 = n1.split(/\s+/);
   const parts2 = n2.split(/\s+/);
-
-  // Last name must match
   const last1 = parts1[parts1.length - 1];
   const last2 = parts2[parts2.length - 1];
   if (last1 !== last2) return false;
-
-  // First part: initial vs full name
   const first1 = parts1[0];
   const first2 = parts2[0];
   if (first1 === first2) return true;
   if (first1.length === 1 && first2.startsWith(first1)) return true;
   if (first2.length === 1 && first1.startsWith(first2)) return true;
-
-  // Levenshtein distance for close spellings (threshold 2 for names > 5 chars)
   if (n1.length > 5 && n2.length > 5 && levenshtein(n1, n2) <= 2) return true;
-
   return false;
 }
 
@@ -346,17 +287,12 @@ function levenshtein(a, b) {
 
 function findPlayerInScorecard(name, list) {
   if (!list) return null;
-  // Exact first
   const exact = list.find(x => x.name?.toLowerCase().trim() === name.toLowerCase().trim());
   if (exact) return exact;
-  // Fuzzy
   return list.find(x => fuzzyMatch(name, x.name || '')) || null;
 }
 function gid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
-// ═══════════════════════════════════════════
-// SCORING ENGINE
-// ═══════════════════════════════════════════
 function parseOvers(o){
   if(!o) return 0;
   const s=String(o), p=s.split('.');
@@ -366,18 +302,12 @@ function parseOvers(o){
 function scoreBatting(b){
   const runs=b.runs||0, balls=b.balls||0, notOut=!!b.isNotOut;
   let pts=0; const bd=[];
-
-  // Duck penalties (only if out)
   if(!notOut && runs===0){
     if(balls===0){ pts-=75; bd.push({l:'Diamond duck 0(0)',p:-75,c:'pen'}); }
     else if(balls===1){ pts-=50; bd.push({l:'Golden duck 0(1)',p:-50,c:'pen'}); }
     else { pts-=30; bd.push({l:'Duck',p:-30,c:'pen'}); }
   }
-
-  // Not out bonus
   if(notOut){ pts+=10; bd.push({l:'Not out',p:10,c:'bat'}); }
-
-  // Runs with multiplier
   let mult=1, flat=0;
   if(runs>=150) mult=4;
   else if(runs>=130) mult=3;
@@ -385,7 +315,6 @@ function scoreBatting(b){
   else if(runs>=75) flat=50;
   else if(runs>=50) flat=30;
   else if(runs>=30) flat=20;
-
   if(runs>0){
     const rp=runs*mult;
     pts+=rp;
@@ -397,8 +326,6 @@ function scoreBatting(b){
     const fl=runs>=75?'75-99 bonus':runs>=50?'50-74 bonus':'30-49 bonus';
     bd.push({l:fl,p:flat,c:'bat'});
   }
-
-  // SR bonus (min 10 balls)
   if(balls>=10){
     const sr=(runs/balls)*100;
     let sb=0,sl='';
@@ -416,8 +343,6 @@ function scoreBowling(b){
   const maidens=b.maidens||0, wMaidens=b.wicketMaidens||0, hattrick=!!b.hasHattrick;
   const ov=parseOvers(overs);
   let pts=0; const bd=[];
-
-  // Wickets
   const base=wk*30;
   let mult=1, flat=0;
   if(wk>=7) mult=4;
@@ -425,7 +350,6 @@ function scoreBowling(b){
   else if(wk>=5) mult=2;
   else if(wk>=4) flat=50;
   else if(wk>=3) flat=30;
-
   if(wk>0){
     const wp=base*mult;
     pts+=wp;
@@ -433,14 +357,10 @@ function scoreBowling(b){
     else bd.push({l:`${wk} wicket${wk>1?'s':''}`,p:base,c:'bowl'});
     if(flat>0){pts+=flat;bd.push({l:`${wk}W bonus`,p:flat,c:'bowl'});}
   }
-
-  // Maidens / wicket maidens
   const regM=Math.max(0,maidens-wMaidens);
   if(wMaidens>0){pts+=wMaidens*100;bd.push({l:`${wMaidens} wicket maiden`,p:wMaidens*100,c:'bowl'});}
   if(regM>0){pts+=regM*50;bd.push({l:`${regM} maiden`,p:regM*50,c:'bowl'});}
   if(hattrick){pts+=200;bd.push({l:'Hat-trick!',p:200,c:'bowl'});}
-
-  // Economy (min 2 overs)
   if(ov>=2){
     const eco=ov>0?runs/ov:99;
     let eb=0,el='';
@@ -450,12 +370,9 @@ function scoreBowling(b){
     else if(eco<=5.5){eb=30;el=`Eco ${eco.toFixed(2)} ≤5.5`;}
     if(eb>0){pts+=eb;bd.push({l:el,p:eb,c:'bowl'});}
   }
-
-  // Runs conceded penalty
   if(runs>=65){pts-=75;bd.push({l:`${runs} runs conceded`,p:-75,c:'pen'});}
   else if(runs>=55){pts-=50;bd.push({l:`${runs} runs conceded`,p:-50,c:'pen'});}
   else if(runs>=50){pts-=30;bd.push({l:`${runs} runs conceded`,p:-30,c:'pen'});}
-
   return{pts,bd};
 }
 
@@ -505,7 +422,6 @@ function processTeamMatch(team, sc, matchId){
     total+=pts;
     players.push({name:rp.name,isC,isVC,pts,bd});
   }
-  // MOM
   const mom=sc.match?.mom;
   if(mom){
     const hasMom=team.players.some(p=>p.name.toLowerCase()===mom.toLowerCase().trim());
@@ -516,29 +432,22 @@ function processTeamMatch(team, sc, matchId){
       players.push({name:mom,isC:false,isVC:false,pts:mp,bd:[{l:`MOM (${mt})`,p:mp,c:'bonus'}]});
     }
   }
-  // Prediction — only score if prediction was submitted AND result known
   const pred=team.predictions?.[matchId];
   if(pred && pred.prediction && pred.correct!==undefined){
     const pp=pred.correct?30:-20;
     total+=pp;
     players.push({name:'Prediction',isC:false,isVC:false,pts:pp,bd:[{l:pred.correct?'Correct prediction':'Wrong prediction',p:pp,c:'pred'}]});
   }
-  // No prediction submitted = 0 pts (no penalty)
   return{total,players};
 }
 
-// ═══════════════════════════════════════════
-// TEAM POINTS (incl. awards + swap penalties)
-// ═══════════════════════════════════════════
 function teamTotal(team){
   let t=0;
   for(const m of S.matches){
     if(m.completed && m.teamScores?.[team.id]) t+=m.teamScores[team.id].total||0;
   }
-  // Wrong swap penalties
   const wrongSwaps=(team.swaps?.history||[]).filter(s=>s.isWrong).length;
   t+=wrongSwaps*(-300);
-  // Awards
   const a=S.awards;
   if(a.orangeCap===team.id) t+=200;
   if(a.secondRuns===team.id) t+=150;
@@ -554,9 +463,6 @@ function teamTotal(team){
   return t;
 }
 
-// ═══════════════════════════════════════════
-// NAVIGATION
-// ═══════════════════════════════════════════
 function nav(v){
   curView=v;
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.v===v));
@@ -579,13 +485,10 @@ function render(){
   }
 }
 
-// ═══════════════════════════════════════════
-// VIEW: LEADERBOARD
-// ═══════════════════════════════════════════
 function vLeaderboard(){
   if(!S.teams.length) return isAdmin
-    ? `<div class="empty"><div class="icon">🏏</div><h2>Welcome to IPL Fantasy</h2><p>Start by adding your teams in the Teams tab</p><button class="btn btn-primary" onclick="nav('teams')">Setup Teams →</button></div>`
-    : `<div class="empty"><div class="icon">🏏</div><h2>IPL Fantasy League</h2><p class="muted">The season hasn't started yet. Check back soon!</p></div>`;
+    ? '<div class="empty"><div class="icon">🏏</div><h2>Welcome to IPL Fantasy</h2><p>Start by adding your teams in the Teams tab</p><button class="btn btn-primary" onclick="nav(\'teams\')">Setup Teams →</button></div>'
+    : '<div class="empty"><div class="icon">🏏</div><h2>IPL Fantasy League</h2><p class="muted">The season hasn\'t started yet. Check back soon!</p></div>';
 
   const ranked=[...S.teams]
     .map(t=>({...t,tot:teamTotal(t),played:S.matches.filter(m=>m.teamScores?.[t.id]).length}))
@@ -632,9 +535,6 @@ function lastMatchWidget(){
   </div></div>`;
 }
 
-// ═══════════════════════════════════════════
-// VIEW: MATCHES
-// ═══════════════════════════════════════════
 function vMatches(){
   const completed=S.matches.filter(m=>m.completed);
   if(!completed.length) return`<div class="empty"><div class="icon">📊</div><h2>No completed matches yet</h2><p>${isAdmin?'Create a match and upload the scorecard after it ends':'Scores will appear here once matches are completed'}</p>${isAdmin?'<button class="btn btn-primary" onclick="nav(\'add\')">Match Manager →</button>':''}</div>`;
@@ -686,9 +586,6 @@ function playerBD(players){
 function toggleBD(id){const e=document.getElementById(id);if(e)e.style.display=e.style.display==='none'?'':'none';}
 function delMatch(id){if(!checkAdmin('delete a match'))return;if(!confirm('Delete this match and all its scores?'))return;S.matches=S.matches.filter(m=>m.id!==id);saveS();render();}
 
-// ═══════════════════════════════════════════
-// VIEW: POINTS (match-wise per team + player)
-// ═══════════════════════════════════════════
 let pointsView = { teamId: null, matchId: null };
 
 function vPoints(){
@@ -769,10 +666,7 @@ function vPoints(){
   </div>` : `<div class="alert al-info">Select a match row above (click "Drill ▾") to see player-level breakdown.</div>`}`;
 }
 
-// ═══════════════════════════════════════════
-// VIEW: ADD MATCH — two-phase flow
-// ═══════════════════════════════════════════
-let addView = 'menu'; // 'menu' | 'create' | 'scorecard'
+let addView = 'menu';
 let scorecardMatchId = null;
 
 function vAdd(){
@@ -1000,47 +894,43 @@ RULES:
 - wins: look for "won by" or result text
 - MOM: look for "Player of the match" or "man of the match"`;
 
-    // ── robust JSON extractor ──────────────────────────────────────────
-  function extractJSON(str) {
-    const objIdx = str.indexOf('{');
-    const arrIdx = str.indexOf('[');
-    let start = -1;
-    if (objIdx === -1 && arrIdx === -1) throw new Error('No JSON object found in model response');
-    if (objIdx === -1) start = arrIdx;
-    else if (arrIdx === -1) start = objIdx;
-    else start = Math.min(objIdx, arrIdx);
+function extractJSON(str) {
+  const objIdx = str.indexOf('{');
+  const arrIdx = str.indexOf('[');
+  let start = -1;
+  if (objIdx === -1 && arrIdx === -1) throw new Error('No JSON object found in model response');
+  if (objIdx === -1) start = arrIdx;
+  else if (arrIdx === -1) start = objIdx;
+  else start = Math.min(objIdx, arrIdx);
 
-    const open = str[start], close = open === '{' ? '}' : ']';
-    let depth = 0, inStr = false, esc = false;
+  const open = str[start], close = open === '{' ? '}' : ']';
+  let depth = 0, inStr = false, esc = false;
 
-    for (let i = start; i < str.length; i++) {
-      const c = str[i];
-      if (esc) { esc = false; continue; }
-      if (c === '\\' && inStr) { esc = true; continue; }
-      if (c === '"') { inStr = !inStr; continue; }
-      if (inStr) continue;
-      if (c === open) depth++;
-      if (c === close) { depth--; if (depth === 0) return JSON.parse(str.slice(start, i + 1)); }
-    }
-    throw new Error('JSON in model response was incomplete or malformed');
+  for (let i = start; i < str.length; i++) {
+    const c = str[i];
+    if (esc) { esc = false; continue; }
+    if (c === '\\' && inStr) { esc = true; continue; }
+    if (c === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (c === open) depth++;
+    if (c === close) { depth--; if (depth === 0) return JSON.parse(str.slice(start, i + 1)); }
   }
-  // ──────────────────────────────────────────────────────────────────
-  
+  throw new Error('JSON in model response was incomplete or malformed');
+}
+
+// ─── FIX #1: Use WORKER_URL constant instead of placeholder ───
+// ─── FIX #2: Use PARSE_PROMPT (correct variable name) ─────────
+// ─── FIX #3: Properly close the doParseAI function ────────────
 async function doParseAI() {
   if (!checkAdmin('parse a match')) return;
 
   const txt = document.getElementById('sct')?.value.trim();
-  const mn = document.getElementById('mn')?.value.trim();
-  const mtype = document.getElementById('mt')?.value;
-  const mdate = document.getElementById('md')?.value;
   const hasImages = uploadImg1 || uploadImg2;
 
   if (!txt && !hasImages) { alert('Paste scorecard text or upload at least one screenshot'); return; }
 
   const btn = document.getElementById('pbt');
   if (btn) btn.innerHTML = '<span class="spinner"></span> Parsing...';
-
-
 
   let userContent;
   if (hasImages) {
@@ -1056,33 +946,45 @@ async function doParseAI() {
   }
 
   try {
-  const res = await fetch('YOUR_CLOUDFLARE_WORKER_URL', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ system: PARSEPROMPT, messages: [{ role: 'user', content: userContent }] })
-  });
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ system: PARSE_PROMPT, messages: [{ role: 'user', content: userContent }] })
+    });
 
-  const data = await res.json();
-  const raw = data.content?.[0]?.text || '';
+    const data = await res.json();
+    const raw = data.content?.[0]?.text || '';
 
-  if (raw.startsWith('API_ERROR') || raw.startsWith('WORKER_ERROR')) {
-    throw new Error(raw);
+    if (raw.startsWith('API_ERROR') || raw.startsWith('WORKER_ERROR')) {
+      throw new Error(raw);
+    }
+
+    const parsed = extractJSON(raw);
+
+    // Get match metadata from the existing match record
+    const existingMatch = S.matches.find(x => x.id === scorecardMatchId);
+    pendingSC = {
+      ...parsed,
+      matchName: existingMatch?.name || '',
+      matchType: existingMatch?.type || 'league',
+      matchDate: existingMatch?.date || ''
+    };
+    uploadImg1 = null; uploadImg2 = null; uploadType1 = null; uploadType2 = null;
+    render();
+
+  } catch (e) {
+    if (btn) btn.innerHTML = '🤖 Parse with AI';
+    alert('Parse failed: ' + e.message);
   }
+} // ← FIX #3: This closing brace was missing
 
-  const parsed = extractJSON(raw);  // ✅ raw is in scope here
-
-  pendingSC = { ...parsed, matchName: mn, matchType: mtype, matchDate: mdate };
-  uploadImg1 = null; uploadImg2 = null; uploadType1 = null; uploadType2 = null;
+// ─── FIX #4: clearPending was trapped inside doParseAI ────────
+function clearPending(){
+  pendingSC=null;
+  uploadImg1=null;
+  uploadImg2=null;
   render();
-
-} catch (e) {
-  if (btn) btn.innerHTML = 'Parse with AI';
-  alert('Parse failed: ' + e.message);
 }
-
-//const data=await res.json();
-//const raw = data.content?.?.text || '';
-function clearPending(){pendingSC=null;uploadImg1=null;uploadImg2=null;render();}
 
 async function submitMatch(){
   if(!checkAdmin('save a match')) return;
@@ -1090,7 +992,6 @@ async function submitMatch(){
   const winner=document.getElementById('ewinner')?.value||pendingSC.match?.winner||'';
   const mom=document.getElementById('emom')?.value||pendingSC.match?.mom||'';
 
-  // Find existing upcoming match record
   let matchRec=S.matches.find(m=>m.id===scorecardMatchId);
   if(!matchRec){
     matchRec={id:gid(),name:'Unknown Match',type:'league',date:'',teamScores:{}};
@@ -1119,7 +1020,6 @@ async function submitMatch(){
     t.currentCaptain=cap; t.currentVc=vc;
   }
 
-  // Auto-mark predictions correct/wrong
   for(const t of S.teams){
     if(t.predictions?.[matchRec.id]){
       t.predictions[matchRec.id].correct=
@@ -1135,9 +1035,6 @@ async function submitMatch(){
   alert(`✅ Scores saved for "${matchRec.name}"! Predictions marked automatically.`);
 }
 
-// ═══════════════════════════════════════════
-// VIEW: SQUAD (global player pool)
-// ═══════════════════════════════════════════
 function vSquad(){
   if(!S.squad) S.squad=[];
   const byOwner = {};
@@ -1165,7 +1062,6 @@ function vSquad(){
 
   ${!S.squad.length?`<div class="empty"><div class="icon">🏏</div><h2>No players yet</h2><p>Import an xlsx file or add players manually</p></div>`:`
 
-  <!-- Filter bar -->
   <div class="card mb12" style="padding:10px 16px">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <input id="squad-search" placeholder="Search player…" style="width:180px" oninput="renderSquadFilter()" />
@@ -1272,7 +1168,6 @@ async function importSquadXlsx(inp){
     if(!S.squad) S.squad=[];
     let added=0, skipped=0;
     for(const row of rows){
-      // Flexible column name matching
       const name=(row['Name']||row['name']||row['Player']||'').toString().trim();
       const iplTeam=(row['IPL Team']||row['IPLTeam']||row['Team']||'').toString().trim();
       const role=(row['Role']||row['role']||'').toString().trim();
@@ -1300,9 +1195,6 @@ function exportSquadTemplate(){
   XLSX.writeFile(wb,'squad_template.xlsx');
 }
 
-// ═══════════════════════════════════════════
-// FORMATION RULES
-// ═══════════════════════════════════════════
 const FORMATION = { Batsman:4, 'All-rounder':2, 'Wicket-keeper':1, Bowler:4 };
 const FLEX_ROLES = {
   'All-rounder': ['Batsman','Bowler','All-rounder'],
@@ -1310,7 +1202,6 @@ const FLEX_ROLES = {
 };
 
 function validateFormation(players) {
-  // Count by role, applying flex rules
   const slots = { Batsman:0, 'All-rounder':0, 'Wicket-keeper':0, Bowler:0 };
   for (const p of players) {
     const r = p.role;
@@ -1333,9 +1224,6 @@ function hasMatchStarted() {
   return S.matches.length > 0;
 }
 
-// ═══════════════════════════════════════════
-// VIEW: TEAMS (admin = full edit, viewer = lineups)
-// ═══════════════════════════════════════════
 function vTeams(){
   if (!isAdmin) return vTeamsPublic();
   return`<div class="fb mb16"><h1>👥 Teams — Playing XI</h1><button class="btn btn-primary" onclick="showAddTeam()">+ Add Team</button></div>
@@ -1346,7 +1234,7 @@ function vTeams(){
 }
 
 function vTeamsPublic(){
-  if (!S.teams.length) return `<div class="empty"><div class="icon">👥</div><h2>No teams yet</h2><p>Teams will appear here once the season is set up.</p></div>`;
+  if (!S.teams.length) return '<div class="empty"><div class="icon">👥</div><h2>No teams yet</h2><p>Teams will appear here once the season is set up.</p></div>';
   return`<div class="fb mb16"><h1>👥 Team Lineups</h1></div>
   <div class="alert al-info mb16">Formation: 4 Batsmen · 4 Bowlers · 2 All-rounders · 1 Wicket-keeper</div>
   ${S.teams.map(t=>{
@@ -1380,9 +1268,7 @@ function teamCard(t){
   const f=formationStatus(t.players);
   const formErrors=validateFormation(t.players);
   const seasonStarted=hasMatchStarted();
-  // Squad players belonging to this team
   const mySquad=(S.squad||[]).filter(p=>p.ownerTeam===t.name);
-  // Squad players not yet in XI
   const notInXI=mySquad.filter(sq=>!t.players.some(p=>p.name===sq.name));
 
   return`<div class="card mb12">
@@ -1458,10 +1344,8 @@ async function addToXI(tid){
   const isCap=document.getElementById('pxi-cap')?.checked;
   const isVc=document.getElementById('pxi-vc')?.checked;
   if(t.players.length>=11){alert('XI already has 11 players. Remove one first.');return;}
-  // Get player data from squad
   const sqPlayer=(S.squad||[]).find(p=>p.name===name&&p.ownerTeam===t.name);
   if(!sqPlayer){alert('Player not found in squad');return;}
-  // Formation check
   const f=formationStatus(t.players);
   if((f[sqPlayer.role]||0)>=FORMATION[sqPlayer.role]){
     alert(`Formation slot full for ${sqPlayer.role} (max ${FORMATION[sqPlayer.role]}). Remove a ${sqPlayer.role} first.`);return;
@@ -1523,18 +1407,7 @@ async function delTeam(tid){
   await saveS();render();
 }
 
-// ═══════════════════════════════════════════
-// VIEW: SWAPS
-// ═══════════════════════════════════════════
-// Rules:
-//   - 1 FREE daily swap per match day (if 2 games that day → 2 free swaps)
-//   - Free swaps do NOT count against the 15 season total
-//   - 15 PAID player swaps total across the season
-//   - 5 captain swaps, 5 VC swaps (season total, no daily free for C/VC)
-//   - Wrong swap = −300 pts
-
 function getMatchDates() {
-  // Returns map: dateStr → array of match ids
   const map = {};
   for (const m of S.matches) {
     if (!m.date) continue;
@@ -1545,7 +1418,6 @@ function getMatchDates() {
 }
 
 function getDailyFreeSwapsUsed(team) {
-  // Count free swaps used per date
   const used = {};
   for (const h of (team.swaps?.history || [])) {
     if (h.isFree && h.matchDate) {
@@ -1556,7 +1428,6 @@ function getDailyFreeSwapsUsed(team) {
 }
 
 function getDailyFreeSwapsAllowed(dateStr) {
-  // Number of games on that date = number of free swaps allowed
   const dateMap = getMatchDates();
   return (dateMap[dateStr] || []).length;
 }
@@ -1586,9 +1457,6 @@ function swapCard(t){
   const todayAllowed = getDailyFreeSwapsAllowed(todayStr);
   const todayUsed = freeUsedMap[todayStr] || 0;
   const todayFreeLeft = Math.max(0, todayAllowed - todayUsed);
-
-  const totalFreeUsed = Object.values(freeUsedMap).reduce((a,b)=>a+b,0);
-  const paidUsed = Math.max(0, (sw.player||0) - 0); // paid = non-free player swaps
 
   return`<div class="card mb12">
     <div class="fb mb12">
@@ -1624,13 +1492,8 @@ function showSwapModal(tid){
   const freeAvailable=canUseFreeSwap(t, todayStr);
   const todayAllowed=getDailyFreeSwapsAllowed(todayStr);
   const seasonStarted=hasMatchStarted();
-
-  // Squad for this team
   const mySquad=(S.squad||[]).filter(p=>p.ownerTeam===t.name);
-  // Not in XI = available to swap IN
   const available=mySquad.filter(sq=>!t.players.some(p=>p.name===sq.name));
-
-  // Per-player swap count
   const playerSwapCount={};
   for(const h of (t.swaps?.history||[])){
     if(h.type==='player' && h.from) playerSwapCount[h.from]=(playerSwapCount[h.from]||0)+1;
@@ -1682,7 +1545,6 @@ function updateSwapForm(tid){
   const type=document.getElementById('sw-type')?.value;
   document.getElementById('sw-player-fields').style.display=type==='player'?'':'none';
   document.getElementById('sw-role-fields').style.display=type!=='player'?'':'none';
-  // copy sw-to-role into sw-to for unified reading
 }
 
 async function logSwap(tid){
@@ -1690,7 +1552,6 @@ async function logSwap(tid){
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   const type=document.getElementById('sw-type')?.value;
   const from=document.getElementById('sw-from')?.value;
-  // Player swap: read from squad dropdown; C/VC: read from role dropdown
   const to=(type==='player'
     ? document.getElementById('sw-to-select')?.value
     : document.getElementById('sw-to-role')?.value);
@@ -1703,10 +1564,8 @@ async function logSwap(tid){
   const todayStr=new Date().toISOString().split('T')[0];
   const matchDate=S.matches.find(m=>m.id===mid)?.date||todayStr;
 
-  // Formation check for player swaps
   if(type==='player' && !isWrong){
     const outPlayer=t.players.find(p=>p.name===from);
-    // Get incoming player's role from squad
     const inPlayer=(S.squad||[]).find(p=>p.name===to&&p.ownerTeam===t.name);
     const newRole=inPlayer?.role||outPlayer?.role;
     if(!newRole){alert('Could not determine role for incoming player.');return;}
@@ -1721,14 +1580,12 @@ async function logSwap(tid){
 
   const isWrongFinal=document.getElementById('sw-wrong')?.checked;
 
-  // Free swap eligibility
   let isFree=false;
   if(!isWrongFinal && type==='player' && wantFree){
     if(canUseFreeSwap(t,matchDate)) isFree=true;
     else{alert(`No free swaps left for ${matchDate}.`);return;}
   }
 
-  // Season limits
   const limits={player:15,captain:5,vc:5};
   if(!isWrongFinal && !isFree){
     if((t.swaps[type]||0)>=limits[type]){alert(`No ${type} swaps remaining this season!`);return;}
@@ -1754,16 +1611,10 @@ async function logSwap(tid){
   await saveS();closeModal('swap-modal');render();
 }
 
-// ═══════════════════════════════════════════
-// VIEW: PREDICTIONS
-// ═══════════════════════════════════════════
 function vPredictions(){
   const todayStr = new Date().toISOString().split('T')[0];
-  // Today's matches = upcoming (not completed) matches scheduled today
   const todayMatches = S.matches.filter(m => !m.completed && m.date === todayStr);
-  // Future upcoming matches (not today)
   const futureMatches = S.matches.filter(m => !m.completed && m.date && m.date > todayStr);
-  // Past completed matches
   const pastMatches = [...S.matches].filter(m => m.completed).reverse();
 
   return`<div class="fb mb16"><h1>🎯 Predictions</h1></div>
@@ -1849,9 +1700,6 @@ async function savePred(tid,mid){
   await saveS();render();
 }
 
-// ═══════════════════════════════════════════
-// VIEW: AWARDS
-// ═══════════════════════════════════════════
 function vAwards(){
   const a=S.awards;
   const tOpts=(key,src)=>S.teams.map(t=>`<option value="${t.id}" ${src===t.id?'selected':''}>${t.name}</option>`).join('');
@@ -1899,11 +1747,6 @@ async function saveAwards(){
   alert('✅ Awards saved! Leaderboard updated.');
 }
 
-// ═══════════════════════════════════════════
-// ADMIN EDIT TOOLS
-// ═══════════════════════════════════════════
-
-// --- Edit a single player's score in a match ---
 function showEditScore(matchId, teamId){
   if(!checkAdmin('edit scores')) return;
   const m=S.matches.find(x=>x.id===matchId);
@@ -1934,13 +1777,10 @@ async function saveEditedScores(matchId, teamId){
   const m=S.matches.find(x=>x.id===matchId);
   const scores=m?.teamScores?.[teamId];
   if(!scores) return;
-
-  // Update player pts
   for(const p of (scores.players||[])){
     const inp=document.getElementById(`ep-${p.name.replace(/\s/g,'_')}`);
     if(inp) p.pts=parseInt(inp.value)||p.pts;
   }
-  // Recalculate total from players OR use override
   const totalInp=document.getElementById('es-total');
   const overrideTotal=totalInp?parseInt(totalInp.value):NaN;
   if(!isNaN(overrideTotal)){
@@ -1952,22 +1792,18 @@ async function saveEditedScores(matchId, teamId){
   alert('✅ Scores updated.');
 }
 
-// --- Reverse a swap ---
 async function reverseSwap(tid, swapIdx){
   if(!checkAdmin('reverse a swap')) return;
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   const h=t.swaps?.history;if(!h||swapIdx<0||swapIdx>=h.length)return;
   const sw=h[swapIdx];
   if(!confirm(`Reverse swap: ${sw.from||sw.type} → ${sw.to}?\nThis will undo the roster change and refund the swap.`)) return;
-
-  // Undo roster
   if(!sw.isWrong){
     if(sw.type==='player'){
       t.players=t.players.filter(p=>p.name!==sw.to);
       if(sw.from) t.players.push({id:gid(),name:sw.from,iplTeam:'',role:sw.outRole||''});
     } else if(sw.type==='captain'){t.currentCaptain=sw.from||t.currentCaptain;}
     else if(sw.type==='vc'){t.currentVc=sw.from||t.currentVc;}
-    // Refund counter
     if(!sw.isFree && t.swaps[sw.type]>0) t.swaps[sw.type]--;
   }
   h.splice(swapIdx,1);
@@ -1975,7 +1811,6 @@ async function reverseSwap(tid, swapIdx){
   alert('✅ Swap reversed.');
 }
 
-// --- Reverse a prediction ---
 async function reversePred(tid, mid){
   if(!checkAdmin('reverse a prediction')) return;
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
@@ -1985,9 +1820,6 @@ async function reversePred(tid, mid){
   await saveS();render();
 }
 
-// ═══════════════════════════════════════════
-// NAV INIT
-// ═══════════════════════════════════════════
 document.getElementById('nav').addEventListener('click',e=>{
   const btn=e.target.closest('[data-v]');if(btn)nav(btn.dataset.v);
 });
