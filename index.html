@@ -868,20 +868,18 @@ function doParseText(){
 }
 
 function parseCricbuzzText(txt){
-  // Cricbuzz format: each player entry is multi-line:
-  // Line 1: Player name (may have "(wk)", "(c)", "†" etc)
-  // Line 2: Dismissal text ("c X b Y", "not out", "lbw b Y", "b Y", "run out (X)", "retired hurt" etc)
-  //         OR it could be "TOTAL", "Extras", "Did not bat", etc — these signal end of batting
-  // Lines 3-7: R, B, 4s, 6s, SR (each on own line, numeric)
-  // Bowling section: lines look like "Name  O  M  R  W  Eco" (tab or multiple space separated)
+  // Cricbuzz uses multi-line format for BOTH batting and bowling.
+  // Batting: Name / Dismissal / R / B / 4s / 6s / SR  (7 lines per player)
+  // Bowling: Name / O / M / R / W / NB / WD / ECO     (8 lines per player)
+  // Header rows like "Batter","R","B","4s","6s","SR","Bowler","O","M","R","W","NB","WD","ECO" are skipped.
 
-  const lines=txt.split('\n').map(l=>l.trim()).filter(l=>l.length>0);
+  const raw=txt.split('\n').map(l=>l.trim()).filter(l=>l.length>0);
   const batting=[], bowling=[], fielding=[];
   const fieldMap={};
-  let winner='', mom='', team1='', team2='';
+  let winner='', mom='';
 
-  // Detect MOM / winner from anywhere
-  for(const line of lines){
+  // Detect MOM / winner anywhere in text
+  for(const line of raw){
     const low=line.toLowerCase();
     if(low.includes('player of the match')||low.includes('man of the match')){
       const parts=line.split(/[:\-–]/);if(parts.length>1) mom=parts[parts.length-1].trim();
@@ -891,124 +889,112 @@ function parseCricbuzzText(txt){
     }
   }
 
-  // Known dismissal patterns to identify line 2 of a batting entry
-  const DISMISSAL_PATTERNS=[
-    /^not\s+out$/i,
-    /^c\s+/i,
-    /^st\s+/i,
-    /^b\s+/i,
-    /^lbw\s+b\s+/i,
-    /^run\s+out/i,
-    /^hit\s+wicket/i,
-    /^retired\s+hurt/i,
-    /^retired\s+out/i,
-    /^obstructing/i,
-    /^timed\s+out/i,
-    /^handled/i,
-  ];
-  const isDismissal=s=>DISMISSAL_PATTERNS.some(p=>p.test(s.trim()));
   const isNumeric=s=>/^[\d.]+$/.test(s.trim());
-  const isSkipLine=s=>{
-    const low=s.toLowerCase().trim();
-    return low.startsWith('total')||low.startsWith('extras')||low.startsWith('did not bat')||
-           low.startsWith('yet to bat')||low.startsWith('fall of')||low.startsWith('batter')||
-           low==='r'||low==='b'||low==='4s'||low==='6s'||low==='sr'||
-           low.startsWith('bowling')||low.startsWith('bowler')||low==='o'||low==='m'||
-           low==='w'||low==='eco'||low==='wd'||low==='nb';
-  };
+  const isInt=s=>/^\d+$/.test(s.trim());
 
-  // Try to find bowling lines first (tab-separated or multiple spaces: Name O M R W Eco)
-  // Bowling line pattern: word(s) followed by 5-7 numbers
-  const bowlLineRe=/^(.+?)\s{2,}([\d.]+)\s+([\d]+)\s+([\d]+)\s+([\d]+)\s+([\d.]+)/;
-  const bowlLineRe2=/^(.+?)\t([\d.]+)\t(\d+)\t(\d+)\t(\d+)\t([\d.]+)/;
+  // Header lines to skip
+  const SKIP=['batter','bowler','r','b','4s','6s','sr','o','m','w','nb','wd','eco','extras',
+              'total','fall of wickets','did not bat','yet to bat','partnership'];
+  const isSkip=s=>SKIP.includes(s.toLowerCase().trim())||
+    s.toLowerCase().startsWith('total ')||s.toLowerCase().startsWith('extras ')||
+    s.toLowerCase().startsWith('fall of')||s.toLowerCase().startsWith('did not bat')||
+    s.toLowerCase().startsWith('yet to bat');
 
-  const bowlingLines=new Set();
-  for(let i=0;i<lines.length;i++){
-    const m1=lines[i].match(bowlLineRe)||lines[i].match(bowlLineRe2);
-    if(m1){
-      const name=m1[1].replace(/[†✝(c)(wk)]/g,'').replace(/\(c\)|\(wk\)/gi,'').trim();
-      if(name.length<2||isNumeric(name)) continue;
-      const overs=m1[2];
-      const maidens=parseInt(m1[3])||0;
-      const runs=parseInt(m1[4])||0;
-      const wickets=parseInt(m1[5])||0;
-      const eco=parseFloat(m1[6])||0;
-      bowling.push({name,team:'',overs,maidens,wicketMaidens:0,runs,wickets,economy:eco,hasHattrick:false});
-      bowlingLines.add(i);
+  // Dismissal patterns
+  const DISM=[/^not\s+out$/i,/^c\s+/i,/^st\s+/i,/^b\s+/i,/^lbw\b/i,
+              /^run\s+out/i,/^hit\s+wicket/i,/^retired/i,/^obstructing/i,/^timed\s+out/i];
+  const isDismissal=s=>DISM.some(p=>p.test(s.trim()));
+
+  // Also handle single-line formats (tab or multi-space separated)
+  // Batting: "Name  dismissal  R  B  4s  6s  SR"
+  // Bowling: "Name  O  M  R  W  Eco" or "Name  O  M  R  W  NB  WD  Eco"
+  const singleLineBowlRe=/^(.+?)\s{2,}([\d.]+)\s+(\d+)\s+(\d+)\s+(\d+)(?:\s+\d+\s+\d+)?\s+([\d.]+)\s*$/;
+  const singleLineBowlTab=/^(.+?)\t([\d.]+)\t(\d+)\t(\d+)\t(\d+)(?:\t\d+\t\d+)?\t([\d.]+)\s*$/;
+
+  const usedLines=new Set();
+
+  // ── PASS 1: detect single-line bowling (tab/multi-space) ──
+  for(let i=0;i<raw.length;i++){
+    const m=raw[i].match(singleLineBowlRe)||raw[i].match(singleLineBowlTab);
+    if(!m) continue;
+    const name=m[1].replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
+    if(name.length<2||isNumeric(name)||isSkip(name)) continue;
+    bowling.push({name,team:'',overs:m[2],maidens:parseInt(m[3])||0,wicketMaidens:0,
+      runs:parseInt(m[4])||0,wickets:parseInt(m[5])||0,economy:parseFloat(m[6])||0,hasHattrick:false});
+    usedLines.add(i);
+  }
+
+  // ── PASS 2: detect multi-line bowling ──
+  // Pattern: Name / O / M / R / W / NB / WD / ECO (8 lines)
+  // O is like "4" or "3.2" (can have decimal), M/R/W/NB/WD are integers, ECO is decimal
+  for(let i=0;i<raw.length-7;i++){
+    if(usedLines.has(i)||isSkip(raw[i])||isNumeric(raw[i])) continue;
+    const name=raw[i].replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
+    if(name.length<2) continue;
+    // Check lines i+1..i+7: O M R W NB WD ECO
+    const o=raw[i+1], m=raw[i+2], r=raw[i+3], w=raw[i+4], nb=raw[i+5], wd=raw[i+6], eco=raw[i+7];
+    if(isNumeric(o) && isInt(m) && isInt(r) && isInt(w) && isInt(nb) && isInt(wd) && isNumeric(eco)){
+      // Extra check: overs should be reasonable (0-24), wickets 0-10
+      const oNum=parseFloat(o), wNum=parseInt(w);
+      if(oNum>=0 && oNum<=24 && wNum>=0 && wNum<=10){
+        bowling.push({name,team:'',overs:o,maidens:parseInt(m)||0,wicketMaidens:0,
+          runs:parseInt(r)||0,wickets:wNum,economy:parseFloat(eco)||0,hasHattrick:false});
+        for(let k=i;k<=i+7;k++) usedLines.add(k);
+        i+=7; // skip ahead
+        continue;
+      }
     }
   }
 
-  // Parse batting using the multi-line format
-  // Group lines into potential batting entries
-  let i=0;
-  while(i<lines.length){
-    if(bowlingLines.has(i)||isSkipLine(lines[i])){i++;continue;}
+  // ── PASS 3: detect multi-line batting ──
+  // Pattern: Name / Dismissal / R / B / 4s / 6s / SR (7 lines)
+  for(let i=0;i<raw.length;i++){
+    if(usedLines.has(i)||isSkip(raw[i])||isNumeric(raw[i])) continue;
+    const nameLine=raw[i];
+    const name=nameLine.replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
+    if(name.length<2) continue;
 
-    const nameLine=lines[i];
-    // Must not be numeric, must be reasonable length
-    if(isNumeric(nameLine)||nameLine.length<2){i++;continue;}
-    // Must have a line after it
-    if(i+1>=lines.length){i++;continue;}
-
-    const nextLine=lines[i+1];
-
-    // Check if next line is a dismissal or if this is a standalone numeric (non-batting)
-    const looksLikeDismissal=isDismissal(nextLine)||nextLine.toLowerCase()==='not out';
-    // Also handle case where dismissal is on same line as name: "de Kock (wk)  c X b Y"
-    const combinedMatch=nameLine.match(/^(.+?)\s{2,}(c\s+|st\s+|b\s+|lbw|run\s*out|not\s*out|retired|hit\s*wicket)(.*)$/i);
-
-    let name, dismissal='', isNotOut=false;
-
-    if(combinedMatch){
-      // Name and dismissal on same line
-      name=combinedMatch[1];
-      dismissal=(combinedMatch[2]+(combinedMatch[3]||'')).trim();
-      isNotOut=/not\s*out/i.test(dismissal);
-      // Next lines should be R B 4s 6s SR
-      if(i+5<lines.length && isNumeric(lines[i+1]) && isNumeric(lines[i+2])){
-        const runs=parseInt(lines[i+1])||0;
-        const balls=parseInt(lines[i+2])||0;
-        const fours=parseInt(lines[i+3])||0;
-        const sixes=parseInt(lines[i+4])||0;
-        const sr=parseFloat(lines[i+5])||0;
-        name=name.replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
-        if(name.length>=2){
-          batting.push({name,team:'',runs,balls,fours,sixes,strikeRate:sr,isNotOut,dismissal});
-          extractFielding(dismissal,fieldMap);
-        }
-        i+=6;continue;
-      }
+    // Case A: next line is dismissal, then R B 4s 6s SR
+    if(i+6<raw.length && isDismissal(raw[i+1]) && isInt(raw[i+2]) && isInt(raw[i+3])){
+      const dismissal=raw[i+1].trim();
+      const isNotOut=/not\s*out/i.test(dismissal);
+      const runs=parseInt(raw[i+2])||0;
+      const balls=parseInt(raw[i+3])||0;
+      const fours=parseInt(raw[i+4])||0;
+      const sixes=parseInt(raw[i+5])||0;
+      const sr=parseFloat(raw[i+6])||0;
+      batting.push({name,team:'',runs,balls,fours,sixes,strikeRate:sr,isNotOut,dismissal});
+      extractFielding(dismissal,fieldMap);
+      for(let k=i;k<=i+6;k++) usedLines.add(k);
+      i+=6; continue;
     }
 
-    if(looksLikeDismissal){
-      dismissal=nextLine.trim();
-      isNotOut=/not\s*out/i.test(dismissal);
-      // Expect R B 4s 6s SR on lines i+2..i+6
-      if(i+6<lines.length && isNumeric(lines[i+2]) && isNumeric(lines[i+3])){
-        const runs=parseInt(lines[i+2])||0;
-        const balls=parseInt(lines[i+3])||0;
-        const fours=parseInt(lines[i+4])||0;
-        const sixes=parseInt(lines[i+5])||0;
-        const sr=parseFloat(lines[i+6])||0;
-        name=nameLine.replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
-        if(name.length>=2){
-          batting.push({name,team:'',runs,balls,fours,sixes,strikeRate:sr,isNotOut,dismissal});
-          extractFielding(dismissal,fieldMap);
-        }
-        i+=7;continue;
-      }
+    // Case B: name has inline dismissal on same line ("de Kock  c X b Y"), then R B 4s 6s SR
+    const inlineDism=nameLine.match(/^(.+?)\s{2,}((?:c\s+|st\s+|b\s+|lbw\b|run\s*out|not\s*out|retired|hit\s*wicket).+)$/i);
+    if(inlineDism && i+5<raw.length && isInt(raw[i+1]) && isInt(raw[i+2])){
+      const cleanName=inlineDism[1].replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
+      const dismissal=inlineDism[2].trim();
+      const isNotOut=/not\s*out/i.test(dismissal);
+      const runs=parseInt(raw[i+1])||0;
+      const balls=parseInt(raw[i+2])||0;
+      const fours=parseInt(raw[i+3])||0;
+      const sixes=parseInt(raw[i+4])||0;
+      const sr=parseFloat(raw[i+5])||0;
+      batting.push({name:cleanName,team:'',runs,balls,fours,sixes,strikeRate:sr,isNotOut,dismissal});
+      extractFielding(dismissal,fieldMap);
+      for(let k=i;k<=i+5;k++) usedLines.add(k);
+      i+=5; continue;
     }
-    i++;
   }
 
-  // Convert fieldMap to array
+  // Build fielding array from fieldMap
   for(const fn in fieldMap){
     if(fieldMap.hasOwnProperty(fn)){
       fielding.push({name:fn,catches:fieldMap[fn].catches,stumpings:fieldMap[fn].stumpings,runOuts:fieldMap[fn].runOuts});
     }
   }
 
-  return{team1,team2,winner,mom,batting,bowling,fielding};
+  return{team1:'',team2:'',winner,mom,batting,bowling,fielding};
 }
 
 function extractFielding(dismissal,fieldMap){
