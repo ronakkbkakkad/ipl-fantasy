@@ -221,7 +221,8 @@ const defState = () => ({
   awards:{
     orangeCap:null, secondRuns:null, purpleCap:null, secondWickets:null,
     manOfSeries:null, mostSixes:null, mostFours:null,
-    standings:{first:null,second:null,third:null,fourth:null}
+    standings:{first:null,second:null,third:null,fourth:null},
+    multipliers:{}
   }
 });
 
@@ -235,6 +236,10 @@ async function loadS() {
     await waitForFirebase();
     const raw = await window._fbLoad();
     S = raw ? JSON.parse(raw) : defState();
+    // Migrate older data that doesn't have multipliers
+    if(!S.awards) S.awards = defState().awards;
+    if(!S.awards.multipliers) S.awards.multipliers = {};
+    if(!S.squad) S.squad = [];
   } catch(e) {
     console.error("Load error, using empty state:", e);
     S = defState();
@@ -449,17 +454,20 @@ function teamTotal(team){
   const wrongSwaps=(team.swaps?.history||[]).filter(s=>s.isWrong).length;
   t+=wrongSwaps*(-300);
   const a=S.awards;
-  if(a.orangeCap===team.id) t+=200;
-  if(a.secondRuns===team.id) t+=150;
-  if(a.purpleCap===team.id) t+=200;
-  if(a.secondWickets===team.id) t+=150;
-  if(a.manOfSeries===team.id) t+=250;
-  if(a.mostSixes===team.id) t+=100;
-  if(a.mostFours===team.id) t+=100;
-  if(a.standings?.first===team.id) t+=300;
-  if(a.standings?.second===team.id) t+=250;
-  if(a.standings?.third===team.id) t+=200;
-  if(a.standings?.fourth===team.id) t+=150;
+  const mult=k=>{const r=a.multipliers?.[k]||'none';return r==='captain'?2:r==='vc'?1.5:1;};
+  // Season awards — with C/VC multiplier
+  if(a.orangeCap===team.id)     t+=Math.round(200*mult('orangeCap'));
+  if(a.secondRuns===team.id)    t+=Math.round(150*mult('secondRuns'));
+  if(a.purpleCap===team.id)     t+=Math.round(200*mult('purpleCap'));
+  if(a.secondWickets===team.id) t+=Math.round(150*mult('secondWickets'));
+  if(a.manOfSeries===team.id)   t+=Math.round(250*mult('manOfSeries'));
+  if(a.mostSixes===team.id)     t+=Math.round(100*mult('mostSixes'));
+  if(a.mostFours===team.id)     t+=Math.round(100*mult('mostFours'));
+  // Final standings — no multiplier
+  if(a.standings?.first===team.id)   t+=300;
+  if(a.standings?.second===team.id)  t+=250;
+  if(a.standings?.third===team.id)   t+=200;
+  if(a.standings?.fourth===team.id)  t+=150;
   return t;
 }
 
@@ -1917,7 +1925,23 @@ async function savePred(tid,mid){
 
 function vAwards(){
   const a=S.awards;
+  if(!a.multipliers) a.multipliers={};
   const tOpts=(key,src)=>S.teams.map(t=>`<option value="${t.id}" ${src===t.id?'selected':''}>${t.name}</option>`).join('');
+  const multOpts=(key)=>{
+    const cur=a.multipliers[key]||'none';
+    return`<select id="am-${key}" style="width:130px">
+      <option value="none" ${cur==='none'?'selected':''}>None (×1)</option>
+      <option value="captain" ${cur==='captain'?'selected':''}>Captain (×2)</option>
+      <option value="vc" ${cur==='vc'?'selected':''}>VC (×1.5)</option>
+    </select>`;
+  };
+  const calcPts=(pts,key,src)=>{
+    if(!src) return`<span class="muted">—</span>`;
+    const r=a.multipliers[key]||'none';
+    const f=r==='captain'?2:r==='vc'?1.5:1;
+    const final=Math.round(pts*f);
+    return`<span class="hl" style="font-weight:700">${final}</span>${f>1?`<span class="muted small"> (${pts}×${f})</span>`:''}`;
+  };
   const arows=[
     {k:'orangeCap',l:'🟠 Orange Cap',pts:200,src:a.orangeCap},
     {k:'secondRuns',l:'🟠 2nd Highest Runs',pts:150,src:a.secondRuns},
@@ -1934,12 +1958,19 @@ function vAwards(){
     {k:'fourth',l:'4th Place',pts:150,src:a.standings?.fourth},
   ];
   return`<div class="fb mb16"><h1>Tournament Awards</h1><button class="btn btn-primary" onclick="saveAwards()">Save Awards</button></div>
-  <div class="alert al-warn mb16">End-of-tournament awards. Points auto-added to leaderboard once assigned.</div>
+  <div class="alert al-warn mb16">End-of-tournament awards. Season awards support Captain (×2) / VC (×1.5) multipliers.</div>
   <div class="card mb12"><h2>Season Awards</h2>
-    ${arows.map(r=>`<div class="fb" style="padding:10px 0;border-bottom:1px solid var(--border)">
-      <div class="fc g8"><span style="font-weight:600">${r.l}</span><span class="badge b-orange">+${r.pts}</span></div>
-      <select id="aw-${r.k}" style="width:180px"><option value="">— None —</option>${tOpts(r.k,r.src)}</select>
-    </div>`).join('')}
+    <div class="tscroll"><table>
+      <thead><tr><th>Award</th><th>Team</th><th>C / VC / None</th><th>Final Pts</th></tr></thead>
+      <tbody>
+        ${arows.map(r=>`<tr>
+          <td><span style="font-weight:600">${r.l}</span> <span class="badge b-orange">base ${r.pts}</span></td>
+          <td><select id="aw-${r.k}" style="width:160px" onchange="render()"><option value="">— None —</option>${tOpts(r.k,r.src)}</select></td>
+          <td>${multOpts(r.k)}</td>
+          <td>${calcPts(r.pts,r.k,r.src)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>
   </div>
   <div class="card"><h2>Final Standings</h2>
     ${finals.map(r=>`<div class="fb" style="padding:10px 0;border-bottom:1px solid var(--border)">
@@ -1951,8 +1982,10 @@ function vAwards(){
 
 async function saveAwards(){
   if(!checkAdmin('save awards')) return;
+  if(!S.awards.multipliers) S.awards.multipliers={};
   ['orangeCap','secondRuns','purpleCap','secondWickets','manOfSeries','mostSixes','mostFours'].forEach(k=>{
     S.awards[k]=document.getElementById(`aw-${k}`)?.value||null;
+    S.awards.multipliers[k]=document.getElementById(`am-${k}`)?.value||'none';
   });
   if(!S.awards.standings)S.awards.standings={};
   ['first','second','third','fourth'].forEach(k=>{
