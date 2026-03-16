@@ -10,6 +10,7 @@
   import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
   // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────
+  const firebaseConfig = {
 const firebaseConfig = {
   apiKey: "AIzaSyCZoXw-bl1wLQ3nolBeqnyQj6Br7rBrETU",
   authDomain: "ipl-fantasy-9.firebaseapp.com",
@@ -188,13 +189,13 @@ label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
   <div class="header-inner">
     <div class="logo">IPL<span class="hl">Fantasy</span></div>
     <nav id="nav">
-      <button class="active" data-v="leaderboard">🏆 Leaderboard</button>
+      <button data-v="leaderboard">🏆 Leaderboard</button>
       <button data-v="matches">📊 Matches</button>
       <button data-v="points">📈 Points</button>
       <button data-v="predictions">🎯 Predictions</button>
       <button data-v="swaps">🔄 Swaps</button>
+      <button data-v="teams">👥 Teams</button>
       <button class="admin-only" data-v="add" style="display:none">➕ Add Match</button>
-      <button class="admin-only" data-v="teams" style="display:none">👥 Teams</button>
       <button class="admin-only" data-v="awards" style="display:none">🥇 Awards</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
@@ -565,7 +566,7 @@ function render(){
     case 'matches': app.innerHTML=vMatches(); break;
     case 'points': app.innerHTML=vPoints(); break;
     case 'add': app.innerHTML=isAdmin?vAdd():'<div class="empty"><div class="icon">🔒</div><h2>Admin only</h2></div>'; break;
-    case 'teams': app.innerHTML=isAdmin?vTeams():'<div class="empty"><div class="icon">🔒</div><h2>Admin only</h2></div>'; break;
+    case 'teams': app.innerHTML=vTeams(); break;
     case 'swaps': app.innerHTML=vSwaps(); break;
     case 'predictions': app.innerHTML=vPredictions(); break;
     case 'awards': app.innerHTML=isAdmin?vAwards():'<div class="empty"><div class="icon">🔒</div><h2>Admin only</h2></div>'; break;
@@ -577,7 +578,9 @@ function render(){
 // VIEW: LEADERBOARD
 // ═══════════════════════════════════════════
 function vLeaderboard(){
-  if(!S.teams.length) return `<div class="empty"><div class="icon">🏏</div><h2>Welcome to IPL Fantasy</h2><p>Start by adding your teams</p><button class="btn btn-primary" onclick="nav('teams')">Setup Teams →</button></div>`;
+  if(!S.teams.length) return isAdmin
+    ? `<div class="empty"><div class="icon">🏏</div><h2>Welcome to IPL Fantasy</h2><p>Start by adding your teams in the Teams tab</p><button class="btn btn-primary" onclick="nav('teams')">Setup Teams →</button></div>`
+    : `<div class="empty"><div class="icon">🏏</div><h2>IPL Fantasy League</h2><p class="muted">The season hasn't started yet. Check back soon!</p></div>`;
 
   const ranked=[...S.teams]
     .map(t=>({...t,tot:teamTotal(t),played:S.matches.filter(m=>m.teamScores?.[t.id]).length}))
@@ -628,8 +631,8 @@ function lastMatchWidget(){
 // VIEW: MATCHES
 // ═══════════════════════════════════════════
 function vMatches(){
-  if(!S.matches.length) return`<div class="empty"><div class="icon">📊</div><h2>No matches yet</h2><p>Add your first match to track points</p><button class="btn btn-primary" onclick="nav('add')">Add Match →</button></div>`;
-  return`<div class="fb mb16"><h1>Match History</h1><button class="btn btn-primary btn-sm" onclick="nav('add')">+ Add Match</button></div>
+  if(!S.matches.length) return`<div class="empty"><div class="icon">📊</div><h2>No matches yet</h2><p>${isAdmin?'Add your first match to track points':'Matches will appear here once the season begins'}</p>${isAdmin?'<button class="btn btn-primary" onclick="nav(\'add\')">Add Match →</button>':''}</div>`;
+  return`<div class="fb mb16"><h1>Match History</h1>${isAdmin?'<button class="btn btn-primary btn-sm" onclick="nav(\'add\')">+ Add Match</button>':''}</div>
   ${[...S.matches].reverse().map(m=>matchCard(m)).join('')}`;
 }
 
@@ -639,7 +642,7 @@ function matchCard(m){
   return`<div class="card" id="m-${m.id}">
     <div class="fb mb12">
       <div class="fc g8"><span style="font-weight:700">${m.name}</span><span class="badge ${typeBadge}">${m.type||'League'}</span></div>
-      <div class="fc g8"><span class="muted small">${m.date||''}</span><button class="btn btn-danger btn-xs" onclick="delMatch('${m.id}')">Delete</button></div>
+      <div class="fc g8"><span class="muted small">${m.date||''}</span>${isAdmin?`<button class="btn btn-danger btn-xs" onclick="delMatch('${m.id}')">Delete</button>`:''}</div>
     </div>
     ${m.winner?`<div class="alert al-success mb12">🏆 Winner: <strong>${m.winner}</strong>${m.mom?` &nbsp;|&nbsp; MOM: <strong>${m.mom}</strong>`:''}</div>`:''}
     <div class="tscroll"><table>
@@ -652,7 +655,7 @@ function matchCard(m){
             <td><span class="badge b-gold">${s.captain||'—'}</span> <span class="badge b-blue">${s.vc||'—'}</span></td>
             <td class="muted small">${top?`${top.name} (${top.pts})`:''}</td>
             <td><span class="hl" style="font-weight:700;font-size:15px">${s.total}</span></td>
-            <td><button class="btn btn-ghost btn-sm" onclick="toggleBD('bd-${m.id}-${team.id}')">Details</button></td>
+            <td><button class="btn btn-ghost btn-sm" onclick="toggleBD('bd-${m.id}-${team.id}')">Details</button>${isAdmin?`<button class="btn btn-ghost btn-sm" onclick="showEditScore('${m.id}','${team.id}')">✏️</button>`:''}</td>
           </tr>
           <tr id="bd-${m.id}-${team.id}" style="display:none"><td colspan="5" style="padding:0">
             <div style="padding:10px;background:var(--bg2);margin:3px;border-radius:7px">${playerBD(s.players||[])}</div>
@@ -995,18 +998,84 @@ async function submitMatch(){
 }
 
 // ═══════════════════════════════════════════
-// VIEW: TEAMS
+// FORMATION RULES
+// ═══════════════════════════════════════════
+const FORMATION = { Batsman:4, 'All-rounder':2, 'Wicket-keeper':1, Bowler:4 };
+const FLEX_ROLES = {
+  'All-rounder': ['Batsman','Bowler','All-rounder'],
+  'Wicket-keeper': ['Batsman','Wicket-keeper']
+};
+
+function validateFormation(players) {
+  // Count by role, applying flex rules
+  const slots = { Batsman:0, 'All-rounder':0, 'Wicket-keeper':0, Bowler:0 };
+  for (const p of players) {
+    const r = p.role;
+    if (slots[r] !== undefined) slots[r]++;
+  }
+  const errors = [];
+  for (const [role, needed] of Object.entries(FORMATION)) {
+    if (slots[role] !== needed) errors.push(`Need ${needed} ${role}(s), have ${slots[role]}`);
+  }
+  return errors;
+}
+
+function formationStatus(players) {
+  const slots = { Batsman:0, 'All-rounder':0, 'Wicket-keeper':0, Bowler:0 };
+  for (const p of players) if (slots[p.role] !== undefined) slots[p.role]++;
+  return slots;
+}
+
+function hasMatchStarted() {
+  return S.matches.length > 0;
+}
+
+// ═══════════════════════════════════════════
+// VIEW: TEAMS (admin = full edit, viewer = lineups)
 // ═══════════════════════════════════════════
 function vTeams(){
+  if (!isAdmin) return vTeamsPublic();
   return`<div class="fb mb16"><h1>Teams</h1><button class="btn btn-primary" onclick="showAddTeam()">+ Add Team</button></div>
   ${S.teams.length===0?`<div class="empty"><div class="icon">👥</div><h2>No teams yet</h2><p>Add up to 12 teams to get started</p><button class="btn btn-primary" onclick="showAddTeam()">Add First Team</button></div>`
   :S.teams.map(t=>teamCard(t)).join('')}
   <div id="mc"></div>`;
 }
 
+function vTeamsPublic(){
+  if (!S.teams.length) return `<div class="empty"><div class="icon">👥</div><h2>No teams yet</h2><p>Teams will appear here once the season is set up.</p></div>`;
+  return`<div class="fb mb16"><h1>👥 Team Lineups</h1></div>
+  <div class="alert al-info mb16">Formation: 4 Batsmen · 2 All-rounders · 1 Wicket-keeper · 4 Bowlers</div>
+  ${S.teams.map(t=>{
+    const tot=teamTotal(t);
+    const f=formationStatus(t.players);
+    return`<div class="card mb12">
+      <div class="fb mb12">
+        <div><span style="font-weight:700;font-size:15px">${t.name}</span>${t.owner?`<span class="muted small" style="margin-left:8px">· ${t.owner}</span>`:''}</div>
+        <span class="hl" style="font-weight:700">${tot} pts</span>
+      </div>
+      <div class="fc g8 mb12">
+        <span class="badge b-gold">C: ${t.currentCaptain||'—'}</span>
+        <span class="badge b-blue">VC: ${t.currentVc||'—'}</span>
+        ${['Batsman','All-rounder','Wicket-keeper','Bowler'].map(r=>`<span class="badge b-gray">${r.slice(0,2)}: ${f[r]||0}/${FORMATION[r]}</span>`).join('')}
+      </div>
+      ${t.players.length?`<div class="tscroll"><table>
+        <thead><tr><th>Player</th><th>IPL Team</th><th>Role</th></tr></thead>
+        <tbody>${t.players.map(p=>`<tr>
+          <td>${p.name}${p.name===t.currentCaptain?' <span class="badge b-gold">C</span>':''}${p.name===t.currentVc?' <span class="badge b-blue">VC</span>':''}</td>
+          <td class="muted">${p.iplTeam||'—'}</td>
+          <td><span class="badge ${p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':'b-green'}">${p.role||'—'}</span></td>
+        </tr>`).join('')}</tbody>
+      </table></div>`:'<p class="muted small">No players</p>'}
+    </div>`;
+  }).join('')}`;
+}
+
 function teamCard(t){
   const tot=teamTotal(t);
   const sw=t.swaps||{player:0,captain:0,vc:0,history:[]};
+  const f=formationStatus(t.players);
+  const formErrors=validateFormation(t.players);
+  const seasonStarted=hasMatchStarted();
   return`<div class="card mb12">
     <div class="fb mb12">
       <div><span style="font-weight:700;font-size:15px">${t.name}</span>${t.owner?`<span class="muted small" style="margin-left:8px">${t.owner}</span>`:''}</div>
@@ -1016,19 +1085,23 @@ function teamCard(t){
         <button class="btn btn-danger btn-sm" onclick="delTeam('${t.id}')">Delete</button>
       </div>
     </div>
-    <div class="fc g8 mb12">
+    <div class="fc g8 mb8" style="flex-wrap:wrap">
       <span class="badge b-gold">C: ${t.currentCaptain||'None'}</span>
       <span class="badge b-blue">VC: ${t.currentVc||'None'}</span>
-      <span class="badge b-gray xs">Swaps P:${15-(sw.player||0)} C:${5-(sw.captain||0)} VC:${5-(sw.vc||0)}</span>
+      ${['Batsman','All-rounder','Wicket-keeper','Bowler'].map(r=>`<span class="badge ${f[r]===FORMATION[r]?'b-green':'b-red'}">${r.slice(0,3)}: ${f[r]||0}/${FORMATION[r]}</span>`).join('')}
+      <span class="badge b-gray xs">Season P:${15-(sw.player||0)} C:${5-(sw.captain||0)} VC:${5-(sw.vc||0)}</span>
     </div>
+    ${formErrors.length?`<div class="alert al-warn mb8 small">⚠️ Formation: ${formErrors.join(' · ')}</div>`:''}
+    ${!seasonStarted?'<div class="alert al-info mb8 small">Set C/VC below before season starts — changes after Match 1 cost a swap.</div>':''}
     ${t.players.length?`<div class="tscroll"><table>
       <thead><tr><th>Player</th><th>IPL Team</th><th>Role</th><th style="text-align:right">Actions</th></tr></thead>
       <tbody>${t.players.map(p=>`<tr>
         <td>${p.name}${p.name===t.currentCaptain?' <span class="badge b-gold">C</span>':''}${p.name===t.currentVc?' <span class="badge b-blue">VC</span>':''}</td>
-        <td class="muted">${p.iplTeam||'—'}</td><td class="muted">${p.role||'—'}</td>
+        <td class="muted">${p.iplTeam||'—'}</td>
+        <td><span class="badge ${p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':'b-green'}">${p.role||'—'}</span></td>
         <td style="text-align:right">
-          <button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','captain')">Set C</button>
-          <button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','vc')">Set VC</button>
+          ${!seasonStarted?`<button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','captain')">Set C</button>
+          <button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','vc')">Set VC</button>`:''}
           <button class="btn btn-danger btn-xs" onclick="removePlayer('${t.id}','${p.name}')">✕</button>
         </td>
       </tr>`).join('')}</tbody>
@@ -1040,17 +1113,27 @@ function showAddTeam(){
   addModal('add-team-modal',`<div class="mhead"><h2>Add Team</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('add-team-modal')">✕</button></div>
   <div class="fg"><label>Team Name</label><input id="nt-name" placeholder="Thunderbolts" /></div>
   <div class="fg"><label>Owner Name</label><input id="nt-owner" placeholder="Ronak" /></div>
-  <button class="btn btn-primary" onclick="addTeam()">Add Team</button>`);
+  <div class="alert al-info mt8 small">Add players after creating the team, then set C/VC before the season starts.</div>
+  <button class="btn btn-primary mt12" onclick="addTeam()">Create Team</button>`);
 }
+
 function showAddPlayer(tid){
-  addModal('ap-modal',`<div class="mhead"><h2>Add Player</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('ap-modal')">✕</button></div>
-  <div class="alert al-info">Player name must exactly match Cricbuzz spelling for auto-scoring.</div>
+  const t=S.teams.find(x=>x.id===tid);if(!t)return;
+  const f=formationStatus(t.players);
+  const remaining=Object.entries(FORMATION).map(([r,n])=>`${r}: ${n-( f[r]||0)} needed`).join(' · ');
+  addModal('ap-modal',`<div class="mhead"><h2>Add Player — ${t.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('ap-modal')">✕</button></div>
+  <div class="alert al-info mb12 small">Formation slots: ${remaining}</div>
+  <div class="alert al-warn mb12 small">Name must exactly match Cricbuzz spelling.</div>
   <div class="fg"><label>Full Name (as on Cricbuzz)</label><input id="ap-name" placeholder="Virat Kohli" /></div>
   <div class="fr">
     <div class="fg"><label>IPL Team</label>
       <select id="ap-team"><option value="">Select…</option>${['MI','CSK','RCB','KKR','PBKS','RR','SRH','DC','GT','LSG'].map(x=>`<option>${x}</option>`).join('')}</select></div>
     <div class="fg"><label>Role</label>
       <select id="ap-role"><option value="">Select…</option><option>Batsman</option><option>Bowler</option><option>All-rounder</option><option>Wicket-keeper</option></select></div>
+  </div>
+  <div class="fr">
+    <div class="fg"><label class="fc g6"><input type="checkbox" id="ap-iscap" style="width:auto"/> Captain</label></div>
+    <div class="fg"><label class="fc g6"><input type="checkbox" id="ap-isvc" style="width:auto"/> Vice-Captain</label></div>
   </div>
   <button class="btn btn-primary" onclick="addPlayer('${tid}')">Add Player</button>`);
 }
@@ -1073,19 +1156,31 @@ async function addTeam(){
   S.teams.push({id:gid(),name,owner,players:[],currentCaptain:null,currentVc:null,swaps:{player:0,captain:0,vc:0,history:[]},predictions:{}});
   await saveS();closeModal('add-team-modal');render();
 }
+
 async function addPlayer(tid){
   if(!checkAdmin('add a player')) return;
   const name=document.getElementById('ap-name')?.value.trim();
   const iplTeam=document.getElementById('ap-team')?.value;
   const role=document.getElementById('ap-role')?.value;
+  const isCap=document.getElementById('ap-iscap')?.checked;
+  const isVc=document.getElementById('ap-isvc')?.checked;
   if(!name){alert('Player name required');return;}
+  if(!role){alert('Select a role');return;}
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   if(t.players.some(p=>p.name.toLowerCase()===name.toLowerCase())){alert('Player already in team');return;}
+
+  // Formation check — will adding this role exceed the slot?
+  const f=formationStatus(t.players);
+  if((f[role]||0) >= FORMATION[role]){
+    alert(`Formation full for ${role} (max ${FORMATION[role]}). Choose a different role.`);return;
+  }
+
   t.players.push({id:gid(),name,iplTeam,role});
-  if(!t.currentCaptain)t.currentCaptain=name;
-  else if(!t.currentVc&&t.players.length>=2)t.currentVc=name;
+  if(isCap || (!t.currentCaptain)) t.currentCaptain=name;
+  if(isVc || (!t.currentVc && t.players.length>=2 && t.currentCaptain!==name)) t.currentVc=name;
   await saveS();closeModal('ap-modal');render();
 }
+
 async function removePlayer(tid,name){
   if(!checkAdmin('remove a player')) return;
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
@@ -1094,12 +1189,14 @@ async function removePlayer(tid,name){
   if(t.currentVc===name)t.currentVc=t.players[1]?.name||t.players[0]?.name||null;
   await saveS();render();
 }
+
 async function setRole(tid,name,type){
   if(!checkAdmin('change captain/VC')) return;
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   if(type==='captain')t.currentCaptain=name;else t.currentVc=name;
   await saveS();render();
 }
+
 async function delTeam(tid){
   if(!checkAdmin('delete a team')) return;
   if(!confirm('Delete team? Cannot be undone.'))return;
@@ -1192,12 +1289,13 @@ function swapCard(t){
     </div>
     ${(sw.history||[]).length?`<h3>History</h3><div class="tscroll"><table>
       <thead><tr><th>Type</th><th>Out</th><th>In</th><th>Match</th><th>Kind</th><th>Status</th></tr></thead>
-      <tbody>${[...(sw.history||[])].reverse().map(s=>`<tr>
+      <tbody>${[...(sw.history||[])].map((s,idx)=>`<tr>
         <td><span class="badge ${s.type==='player'?'b-blue':s.type==='captain'?'b-gold':'b-purple'}">${s.type}</span></td>
         <td class="muted">${s.from||'—'}</td><td>${s.to||'—'}</td><td class="muted small">${s.match||'—'}</td>
         <td>${s.isFree?'<span class="badge b-green">Free</span>':'<span class="badge b-gray">Paid</span>'}</td>
         <td>${s.isWrong?'<span class="badge b-red">WRONG −300</span>':'<span class="badge b-green">Valid</span>'}</td>
-      </tr>`).join('')}</tbody>
+        ${isAdmin?`<td><button class="btn btn-danger btn-xs" onclick="reverseSwap('${t.id}',${(sw.history.length-1-idx)})">↩</button></td>`:'<td></td>'}
+      </tr>`).reverse().join('')}</tbody>
     </table></div>`:'<p class="muted small">No swaps logged</p>'}
   </div>`;
 }
@@ -1207,22 +1305,52 @@ function showSwapModal(tid){
   const todayStr=new Date().toISOString().split('T')[0];
   const freeAvailable=canUseFreeSwap(t, todayStr);
   const todayAllowed=getDailyFreeSwapsAllowed(todayStr);
+  const seasonStarted=hasMatchStarted();
+
+  // Per-player swap count
+  const playerSwapCount={};
+  for(const h of (t.swaps?.history||[])){
+    if(h.type==='player' && h.from){
+      playerSwapCount[h.from]=(playerSwapCount[h.from]||0)+1;
+    }
+  }
 
   addModal('swap-modal',`<div class="mhead"><h2>Log Swap — ${t.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('swap-modal')">✕</button></div>
-  ${todayAllowed===0?'<div class="alert al-warn mb12">No matches scheduled today — free swap not available.</div>':''}
-  ${freeAvailable?`<div class="alert al-success mb12">✅ Free swap available today (${todayAllowed} game${todayAllowed>1?'s':''} today).</div>`:'<div class="alert al-info mb12">No free swaps left today — this will use a season swap.</div>'}
+  ${todayAllowed===0?'<div class="alert al-warn mb12">No matches today — free swap not available.</div>':''}
+  ${freeAvailable?`<div class="alert al-success mb12">✅ Free swap available today (${todayAllowed} game${todayAllowed>1?'s':''} today)</div>`:'<div class="alert al-info mb12">No free swaps left today — uses a season swap.</div>'}
   <div class="fg"><label>Swap Type</label>
-    <select id="sw-type"><option value="player">Player Swap</option><option value="captain">Captain Swap</option><option value="vc">Vice-Captain Swap</option></select></div>
-  <div class="fr">
-    <div class="fg"><label>Player Out</label>
-      <select id="sw-from">${t.players.map(p=>`<option value="${p.name}">${p.name}</option>`).join('')}</select></div>
-    <div class="fg"><label>Player In / New C or VC</label><input id="sw-to" placeholder="Player name" /></div>
+    <select id="sw-type" onchange="updateSwapForm('${tid}')">
+      <option value="player">Player Swap</option>
+      ${seasonStarted?`<option value="captain">Captain Swap (uses season C swap)</option><option value="vc">Vice-Captain Swap (uses season VC swap)</option>`:''}
+    </select>
+  </div>
+  <div id="sw-player-fields">
+    <div class="fr">
+      <div class="fg"><label>Player Out</label>
+        <select id="sw-from" onchange="updateSwapOutRole('${tid}')">${t.players.map(p=>`<option value="${p.name}" data-role="${p.role}">${p.name} (${p.role||'?'}) — ${playerSwapCount[p.name]||0} swaps</option>`).join('')}</select>
+      </div>
+      <div class="fg"><label>Player In</label><input id="sw-to" placeholder="Exact Cricbuzz name" />
+        <div class="fg mt8"><label>Role of new player</label>
+          <select id="sw-newrole"><option value="">Same as out-player</option><option>Batsman</option><option>Bowler</option><option>All-rounder</option><option>Wicket-keeper</option></select>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="sw-role-fields" style="display:none">
+    <div class="fg"><label>New Captain / VC</label><input id="sw-to-role" placeholder="Player name" /></div>
   </div>
   <div class="fg"><label>For Match</label>
     <select id="sw-match"><option value="">Next match</option>${S.matches.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}</select></div>
   <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sw-wrong" style="width:auto" /> Mark as WRONG swap (−300 pts penalty)</label></div>
-  <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sw-free" style="width:auto" ${freeAvailable?'checked':''} ${!freeAvailable?'disabled':''}/> Use as free daily swap ${!freeAvailable?'(none left today)':''}</label></div>
+  <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sw-free" style="width:auto" ${freeAvailable?'checked':''} ${!freeAvailable?'disabled':''}/> Use free daily swap ${!freeAvailable?'(none left)':''}</label></div>
   <button class="btn btn-primary" onclick="logSwap('${tid}')">Log Swap</button>`);
+}
+
+function updateSwapForm(tid){
+  const type=document.getElementById('sw-type')?.value;
+  document.getElementById('sw-player-fields').style.display=type==='player'?'':'none';
+  document.getElementById('sw-role-fields').style.display=type!=='player'?'':'none';
+  // copy sw-to-role into sw-to for unified reading
 }
 
 async function logSwap(tid){
@@ -1230,7 +1358,11 @@ async function logSwap(tid){
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   const type=document.getElementById('sw-type')?.value;
   const from=document.getElementById('sw-from')?.value;
-  const to=document.getElementById('sw-to')?.value.trim();
+  // For C/VC swaps, read from sw-to-role; for player swaps read from sw-to
+  const to=(type==='player'
+    ? document.getElementById('sw-to')?.value.trim()
+    : document.getElementById('sw-to-role')?.value.trim());
+  const newRoleRaw=document.getElementById('sw-newrole')?.value;
   const mid=document.getElementById('sw-match')?.value;
   const isWrong=document.getElementById('sw-wrong')?.checked;
   const wantFree=document.getElementById('sw-free')?.checked;
@@ -1238,33 +1370,50 @@ async function logSwap(tid){
   if(!t.swaps)t.swaps={player:0,captain:0,vc:0,history:[]};
 
   const todayStr=new Date().toISOString().split('T')[0];
-  const matchDate = S.matches.find(m=>m.id===mid)?.date || todayStr;
+  const matchDate=S.matches.find(m=>m.id===mid)?.date||todayStr;
 
-  // Determine if this is a free swap
-  let isFree = false;
-  if(!isWrong && type==='player' && wantFree) {
-    if(canUseFreeSwap(t, matchDate)){
-      isFree = true;
-    } else {
-      alert(`No free swaps left for ${matchDate}.`);
-      return;
+  // Formation check for player swaps
+  if(type==='player' && !isWrong){
+    const outPlayer=t.players.find(p=>p.name===from);
+    const outRole=outPlayer?.role;
+    const newRole=newRoleRaw||outRole;
+    if(!newRole){alert('Could not determine role — select role for new player.');return;}
+    // Temporarily simulate the swap
+    const tempPlayers=t.players.filter(p=>p.name!==from).concat([{name:to,role:newRole}]);
+    const errs=validateFormation(tempPlayers);
+    if(errs.length && !isWrong){
+      const proceed=confirm(`⚠️ Formation warning:\n${errs.join('\n')}\n\nThis will be marked as a WRONG swap (−300 pts). Proceed?`);
+      if(!proceed)return;
+      // force wrong
+      document.getElementById('sw-wrong').checked=true;
     }
   }
 
-  // Check paid season limits
+  const isWrongFinal=document.getElementById('sw-wrong')?.checked;
+
+  // Free swap eligibility
+  let isFree=false;
+  if(!isWrongFinal && type==='player' && wantFree){
+    if(canUseFreeSwap(t,matchDate)) isFree=true;
+    else{alert(`No free swaps left for ${matchDate}.`);return;}
+  }
+
+  // Season limits
   const limits={player:15,captain:5,vc:5};
-  if(!isWrong && !isFree){
+  if(!isWrongFinal && !isFree){
     if((t.swaps[type]||0)>=limits[type]){alert(`No ${type} swaps remaining this season!`);return;}
     t.swaps[type]=(t.swaps[type]||0)+1;
   }
 
   const mname=S.matches.find(m=>m.id===mid)?.name||'Next match';
-  t.swaps.history.push({type,from,to,match:mname,matchId:mid,matchDate,isFree,isWrong,date:new Date().toISOString()});
+  const outPlayer=t.players.find(p=>p.name===from);
+  const newRole=newRoleRaw||outPlayer?.role||'';
+  t.swaps.history.push({type,from,to,match:mname,matchId:mid,matchDate,isFree,isWrong:isWrongFinal,date:new Date().toISOString(),newRole});
 
-  if(!isWrong){
+  if(!isWrongFinal){
     if(type==='player'){
       t.players=t.players.filter(p=>p.name!==from);
-      t.players.push({id:gid(),name:to,iplTeam:'',role:''});
+      t.players.push({id:gid(),name:to,iplTeam:outPlayer?.iplTeam||'',role:newRole});
       if(t.currentCaptain===from)t.currentCaptain=to;
       if(t.currentVc===from)t.currentVc=to;
     } else if(type==='captain'){t.currentCaptain=to;}
@@ -1319,11 +1468,11 @@ function predCardInput(m, canInput){
       </div>
     </div>
     <div class="tscroll"><table>
-      <thead><tr><th>Fantasy Team</th><th>Prediction</th><th>Result</th><th>Pts</th></tr></thead>
+      <thead><tr><th>Fantasy Team</th><th>Prediction</th><th>Result</th><th>Pts</th>${isAdmin?'<th></th>':''}</tr></thead>
       <tbody>${S.teams.map(t=>{
         const p=t.predictions?.[m.id];
         const correct=p&&m.winner?p.prediction?.toLowerCase()===m.winner?.toLowerCase():null;
-        const canEdit = isToday && !m.winner; // only editable today, before result
+        const canEdit = isToday && !m.winner;
         return`<tr>
           <td style="font-weight:600">${t.name}</td>
           <td>${p
@@ -1336,6 +1485,7 @@ function predCardInput(m, canInput){
           <td class="${correct===true?'pos':correct===false?'neg':''}" style="font-weight:600">
             ${correct===true?'+30':correct===false?'−20':'—'}
           </td>
+          ${isAdmin?`<td>${p?`<button class="btn btn-danger btn-xs" onclick="reversePred('${t.id}','${m.id}')">↩</button>`:'—'}</td>`:''}
         </tr>`;
       }).join('')}</tbody>
     </table></div>
@@ -1418,6 +1568,92 @@ async function saveAwards(){
   });
   await saveS();render();
   alert('✅ Awards saved! Leaderboard updated.');
+}
+
+// ═══════════════════════════════════════════
+// ADMIN EDIT TOOLS
+// ═══════════════════════════════════════════
+
+// --- Edit a single player's score in a match ---
+function showEditScore(matchId, teamId){
+  if(!checkAdmin('edit scores')) return;
+  const m=S.matches.find(x=>x.id===matchId);
+  const t=S.teams.find(x=>x.id===teamId);
+  if(!m||!t) return;
+  const scores=m.teamScores?.[teamId];
+  if(!scores) return;
+
+  addModal('edit-score-modal',`
+    <div class="mhead"><h2>✏️ Edit Scores — ${t.name} · ${m.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('edit-score-modal')">✕</button></div>
+    <div class="alert al-warn mb12 small">Changes override AI-calculated values. Use to fix parsing errors.</div>
+    <div class="fg"><label>Match Total Override (leave blank to keep calculated)</label>
+      <input id="es-total" placeholder="${scores.total}" value="${scores.total}" type="number"/></div>
+    <div class="sep"></div>
+    <h3>Player Points</h3>
+    ${(scores.players||[]).map(p=>`
+      <div class="fr mb8" style="align-items:center">
+        <div style="flex:1;font-size:13px">${p.name}${p.isC?' (C)':''}${p.isVC?' (VC)':''}</div>
+        <input id="ep-${p.name.replace(/\s/g,'_')}" type="number" value="${p.pts}" style="width:90px" />
+      </div>`).join('')}
+    <div class="mt12 fc g8">
+      <button class="btn btn-primary" onclick="saveEditedScores('${matchId}','${teamId}')">Save Changes</button>
+      <button class="btn btn-ghost" onclick="closeModal('edit-score-modal')">Cancel</button>
+    </div>`);
+}
+
+async function saveEditedScores(matchId, teamId){
+  const m=S.matches.find(x=>x.id===matchId);
+  const scores=m?.teamScores?.[teamId];
+  if(!scores) return;
+
+  // Update player pts
+  for(const p of (scores.players||[])){
+    const inp=document.getElementById(`ep-${p.name.replace(/\s/g,'_')}`);
+    if(inp) p.pts=parseInt(inp.value)||p.pts;
+  }
+  // Recalculate total from players OR use override
+  const totalInp=document.getElementById('es-total');
+  const overrideTotal=totalInp?parseInt(totalInp.value):NaN;
+  if(!isNaN(overrideTotal)){
+    scores.total=overrideTotal;
+  } else {
+    scores.total=(scores.players||[]).reduce((a,p)=>a+p.pts,0);
+  }
+  await saveS();closeModal('edit-score-modal');render();
+  alert('✅ Scores updated.');
+}
+
+// --- Reverse a swap ---
+async function reverseSwap(tid, swapIdx){
+  if(!checkAdmin('reverse a swap')) return;
+  const t=S.teams.find(x=>x.id===tid);if(!t)return;
+  const h=t.swaps?.history;if(!h||swapIdx<0||swapIdx>=h.length)return;
+  const sw=h[swapIdx];
+  if(!confirm(`Reverse swap: ${sw.from||sw.type} → ${sw.to}?\nThis will undo the roster change and refund the swap.`)) return;
+
+  // Undo roster
+  if(!sw.isWrong){
+    if(sw.type==='player'){
+      t.players=t.players.filter(p=>p.name!==sw.to);
+      if(sw.from) t.players.push({id:gid(),name:sw.from,iplTeam:'',role:sw.outRole||''});
+    } else if(sw.type==='captain'){t.currentCaptain=sw.from||t.currentCaptain;}
+    else if(sw.type==='vc'){t.currentVc=sw.from||t.currentVc;}
+    // Refund counter
+    if(!sw.isFree && t.swaps[sw.type]>0) t.swaps[sw.type]--;
+  }
+  h.splice(swapIdx,1);
+  await saveS();render();
+  alert('✅ Swap reversed.');
+}
+
+// --- Reverse a prediction ---
+async function reversePred(tid, mid){
+  if(!checkAdmin('reverse a prediction')) return;
+  const t=S.teams.find(x=>x.id===tid);if(!t)return;
+  if(!t.predictions?.[mid]){alert('No prediction found.');return;}
+  if(!confirm('Clear this prediction?')) return;
+  delete t.predictions[mid];
+  await saveS();render();
 }
 
 // ═══════════════════════════════════════════
