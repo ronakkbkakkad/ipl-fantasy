@@ -211,6 +211,9 @@ function adminLogout() {
   render();
 }
 
+// ═══════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════
 let S = null;
 let curView = 'leaderboard';
 let pendingSC = null;
@@ -221,7 +224,8 @@ const defState = () => ({
   awards:{
     orangeCap:null, secondRuns:null, purpleCap:null, secondWickets:null,
     manOfSeries:null, mostSixes:null, mostFours:null,
-    standings:{first:null,second:null,third:null,fourth:null}
+    standings:{first:null,second:null,third:null,fourth:null},
+    multipliers:{}   // ← stores C/VC role per award key: {orangeCap:'captain', ...}
   }
 });
 
@@ -235,6 +239,9 @@ async function loadS() {
     await waitForFirebase();
     const raw = await window._fbLoad();
     S = raw ? JSON.parse(raw) : defState();
+    // Ensure multipliers exists for older data
+    if (!S.awards) S.awards = defState().awards;
+    if (!S.awards.multipliers) S.awards.multipliers = {};
   } catch(e) {
     console.error("Load error, using empty state:", e);
     S = defState();
@@ -256,6 +263,9 @@ async function saveS() {
   }
 }
 
+// ═══════════════════════════════════════════
+// FUZZY NAME MATCHING
+// ═══════════════════════════════════════════
 function fuzzyMatch(name1, name2) {
   const n1 = name1.toLowerCase().trim();
   const n2 = name2.toLowerCase().trim();
@@ -293,6 +303,9 @@ function findPlayerInScorecard(name, list) {
 }
 function gid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
+// ═══════════════════════════════════════════
+// SCORING ENGINE
+// ═══════════════════════════════════════════
 function parseOvers(o){
   if(!o) return 0;
   const s=String(o), p=s.split('.');
@@ -441,6 +454,14 @@ function processTeamMatch(team, sc, matchId){
   return{total,players};
 }
 
+// ═══════════════════════════════════════════
+// TEAM POINTS (incl. awards with C/VC multiplier + swap penalties)
+// ═══════════════════════════════════════════
+function awardMult(key) {
+  const role = S.awards.multipliers?.[key] || 'none';
+  return role === 'captain' ? 2 : role === 'vc' ? 1.5 : 1;
+}
+
 function teamTotal(team){
   let t=0;
   for(const m of S.matches){
@@ -449,20 +470,25 @@ function teamTotal(team){
   const wrongSwaps=(team.swaps?.history||[]).filter(s=>s.isWrong).length;
   t+=wrongSwaps*(-300);
   const a=S.awards;
-  if(a.orangeCap===team.id) t+=200;
-  if(a.secondRuns===team.id) t+=150;
-  if(a.purpleCap===team.id) t+=200;
-  if(a.secondWickets===team.id) t+=150;
-  if(a.manOfSeries===team.id) t+=250;
-  if(a.mostSixes===team.id) t+=100;
-  if(a.mostFours===team.id) t+=100;
-  if(a.standings?.first===team.id) t+=300;
-  if(a.standings?.second===team.id) t+=250;
-  if(a.standings?.third===team.id) t+=200;
-  if(a.standings?.fourth===team.id) t+=150;
+  // Season awards with C/VC multiplier
+  if(a.orangeCap===team.id)      t+=Math.round(200 * awardMult('orangeCap'));
+  if(a.secondRuns===team.id)     t+=Math.round(150 * awardMult('secondRuns'));
+  if(a.purpleCap===team.id)      t+=Math.round(200 * awardMult('purpleCap'));
+  if(a.secondWickets===team.id)  t+=Math.round(150 * awardMult('secondWickets'));
+  if(a.manOfSeries===team.id)    t+=Math.round(250 * awardMult('manOfSeries'));
+  if(a.mostSixes===team.id)      t+=Math.round(100 * awardMult('mostSixes'));
+  if(a.mostFours===team.id)      t+=Math.round(100 * awardMult('mostFours'));
+  // Final standings with C/VC multiplier
+  if(a.standings?.first===team.id)  t+=Math.round(300 * awardMult('st_first'));
+  if(a.standings?.second===team.id) t+=Math.round(250 * awardMult('st_second'));
+  if(a.standings?.third===team.id)  t+=Math.round(200 * awardMult('st_third'));
+  if(a.standings?.fourth===team.id) t+=Math.round(150 * awardMult('st_fourth'));
   return t;
 }
 
+// ═══════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════
 function nav(v){
   curView=v;
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.v===v));
@@ -485,15 +511,16 @@ function render(){
   }
 }
 
+// ═══════════════════════════════════════════
+// VIEW: LEADERBOARD
+// ═══════════════════════════════════════════
 function vLeaderboard(){
   if(!S.teams.length) return isAdmin
     ? '<div class="empty"><div class="icon">🏏</div><h2>Welcome to IPL Fantasy</h2><p>Start by adding your teams in the Teams tab</p><button class="btn btn-primary" onclick="nav(\'teams\')">Setup Teams →</button></div>'
     : '<div class="empty"><div class="icon">🏏</div><h2>IPL Fantasy League</h2><p class="muted">The season hasn\'t started yet. Check back soon!</p></div>';
-
   const ranked=[...S.teams]
     .map(t=>({...t,tot:teamTotal(t),played:S.matches.filter(m=>m.teamScores?.[t.id]).length}))
     .sort((a,b)=>b.tot-a.tot);
-
   return `
   <div class="fb mb16"><h1>🏆 Leaderboard</h1><span class="muted small">${S.matches.length} matches played</span></div>
   <div class="stats-grid">
@@ -502,27 +529,19 @@ function vLeaderboard(){
     <div class="stat-card"><div class="val">${ranked[0]?.tot||0}</div><div class="lbl">Top Score</div></div>
     <div class="stat-card"><div class="val" style="font-size:15px">${ranked[0]?.name||'—'}</div><div class="lbl">Leader</div></div>
   </div>
-  <div class="card">
-    <div class="tscroll"><table>
-      <thead><tr><th style="width:36px">#</th><th>Team</th><th>Owner</th><th>Played</th><th>Points</th><th>Avg/Match</th><th>Captain</th><th>VC</th></tr></thead>
-      <tbody>
-        ${ranked.map((t,i)=>{
-          const r=i+1, rCls=r<=3?`rank-${r}`:'', medal=r===1?'🥇':r===2?'🥈':r===3?'🥉':r;
-          const avg=t.played>0?Math.round(t.tot/t.played):0;
-          return`<tr>
-            <td><span class="${rCls}" style="font-weight:700">${medal}</span></td>
-            <td style="font-weight:600">${t.name}</td>
-            <td class="muted">${t.owner||'—'}</td>
-            <td>${t.played}</td>
-            <td><span class="hl" style="font-weight:700;font-size:15px">${t.tot}</span></td>
-            <td class="muted">${avg}</td>
-            <td><span class="badge b-gold">${t.currentCaptain||'—'}</span></td>
-            <td><span class="badge b-blue">${t.currentVc||'—'}</span></td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table></div>
-  </div>
+  <div class="card"><div class="tscroll"><table>
+    <thead><tr><th style="width:36px">#</th><th>Team</th><th>Owner</th><th>Played</th><th>Points</th><th>Avg/Match</th><th>Captain</th><th>VC</th></tr></thead>
+    <tbody>
+      ${ranked.map((t,i)=>{
+        const r=i+1, rCls=r<=3?`rank-${r}`:'', medal=r===1?'🥇':r===2?'🥈':r===3?'🥉':r;
+        const avg=t.played>0?Math.round(t.tot/t.played):0;
+        return`<tr><td><span class="${rCls}" style="font-weight:700">${medal}</span></td>
+          <td style="font-weight:600">${t.name}</td><td class="muted">${t.owner||'—'}</td><td>${t.played}</td>
+          <td><span class="hl" style="font-weight:700;font-size:15px">${t.tot}</span></td><td class="muted">${avg}</td>
+          <td><span class="badge b-gold">${t.currentCaptain||'—'}</span></td><td><span class="badge b-blue">${t.currentVc||'—'}</span></td></tr>`;
+      }).join('')}
+    </tbody>
+  </table></div></div>
   ${S.matches.length?lastMatchWidget():''}`;
 }
 
@@ -535,6 +554,9 @@ function lastMatchWidget(){
   </div></div>`;
 }
 
+// ═══════════════════════════════════════════
+// VIEW: MATCHES
+// ═══════════════════════════════════════════
 function vMatches(){
   const completed=S.matches.filter(m=>m.completed);
   if(!completed.length) return`<div class="empty"><div class="icon">📊</div><h2>No completed matches yet</h2><p>${isAdmin?'Create a match and upload the scorecard after it ends':'Scores will appear here once matches are completed'}</p>${isAdmin?'<button class="btn btn-primary" onclick="nav(\'add\')">Match Manager →</button>':''}</div>`;
@@ -586,67 +608,51 @@ function playerBD(players){
 function toggleBD(id){const e=document.getElementById(id);if(e)e.style.display=e.style.display==='none'?'':'none';}
 function delMatch(id){if(!checkAdmin('delete a match'))return;if(!confirm('Delete this match and all its scores?'))return;S.matches=S.matches.filter(m=>m.id!==id);saveS();render();}
 
+// ═══════════════════════════════════════════
+// VIEW: POINTS
+// ═══════════════════════════════════════════
 let pointsView = { teamId: null, matchId: null };
 
 function vPoints(){
   const completedMatches = S.matches.filter(m=>m.completed);
   if(!completedMatches.length) return`<div class="empty"><div class="icon">📈</div><h2>No completed matches yet</h2><p>Points will appear here once a match scorecard is uploaded</p></div>`;
   if(!S.teams.length) return`<div class="empty"><div class="icon">👥</div><h2>No teams yet</h2></div>`;
-
   const selTeam = pointsView.teamId || S.teams[0].id;
   const selMatch = pointsView.matchId || completedMatches[completedMatches.length-1].id;
   const team = S.teams.find(t=>t.id===selTeam);
   const match = completedMatches.find(m=>m.id===selMatch) || completedMatches[completedMatches.length-1];
   const scores = match?.teamScores?.[selTeam];
-
   return`<div class="fb mb16"><h1>📈 Points Breakdown</h1></div>
-
-  <div class="card mb12">
-    <h3>Select Team</h3>
+  <div class="card mb12"><h3>Select Team</h3>
     <div style="display:flex;flex-wrap:wrap;gap:8px">
       ${S.teams.map(t=>{
-        const tot=teamTotal(t);
-        const active=t.id===selTeam;
+        const tot=teamTotal(t); const active=t.id===selTeam;
         return`<button onclick="pointsView.teamId='${t.id}';pointsView.matchId=null;render()" style="padding:8px 14px;border-radius:8px;border:1px solid ${active?'var(--orange)':'var(--border2)'};background:${active?'var(--orange-dim)':'var(--bg3)'};color:${active?'var(--orange)':'var(--text1)'};cursor:pointer;font-size:13px;font-weight:${active?'700':'400'}">
-          ${t.name} <span style="color:var(--text2);font-size:11px">${tot}pts</span>
-        </button>`;
+          ${t.name} <span style="color:var(--text2);font-size:11px">${tot}pts</span></button>`;
       }).join('')}
     </div>
   </div>
-
-  <div class="card mb12">
-    <h2>${team?.name} — Match-wise Points</h2>
+  <div class="card mb12"><h2>${team?.name} — Match-wise Points</h2>
     <div class="tscroll"><table>
       <thead><tr><th>#</th><th>Match</th><th>Date</th><th>C</th><th>VC</th><th>Points</th><th></th></tr></thead>
       <tbody>
         ${completedMatches.map((m,i)=>{
-          const s=m.teamScores?.[selTeam];
-          const active=m.id===selMatch;
+          const s=m.teamScores?.[selTeam]; const active=m.id===selMatch;
           if(!s) return`<tr><td class="muted">${i+1}</td><td>${m.name}</td><td class="muted">${m.date||''}</td><td colspan="3" class="muted small">—</td><td></td></tr>`;
           return`<tr style="background:${active?'var(--orange-dim)':''}">
-            <td class="muted">${i+1}</td>
-            <td style="font-weight:600">${m.name}</td>
-            <td class="muted small">${m.date||''}</td>
+            <td class="muted">${i+1}</td><td style="font-weight:600">${m.name}</td><td class="muted small">${m.date||''}</td>
             <td><span class="badge b-gold" style="font-size:10px">${s.captain||'—'}</span></td>
             <td><span class="badge b-blue" style="font-size:10px">${s.vc||'—'}</span></td>
             <td><span class="${s.total>=0?'pos':'neg'}" style="font-weight:700;font-size:15px">${s.total}</span></td>
             <td><button class="btn btn-ghost btn-xs" onclick="pointsView.matchId='${m.id}';pointsView.teamId='${selTeam}';render()">Drill ▾</button></td>
           </tr>`;
         }).join('')}
-        <tr style="border-top:2px solid var(--border2)">
-          <td colspan="5" style="font-weight:700;color:var(--text2)">Total</td>
-          <td><span class="hl" style="font-weight:700;font-size:16px">${teamTotal(team)}</span></td>
-          <td></td>
-        </tr>
+        <tr style="border-top:2px solid var(--border2)"><td colspan="5" style="font-weight:700;color:var(--text2)">Total</td>
+          <td><span class="hl" style="font-weight:700;font-size:16px">${teamTotal(team)}</span></td><td></td></tr>
       </tbody>
     </table></div>
   </div>
-
-  ${scores ? `<div class="card">
-    <div class="fb mb12">
-      <h2>${team?.name} — ${match?.name}</h2>
-      <span class="badge b-blue">${match?.date||''}</span>
-    </div>
+  ${scores ? `<div class="card"><div class="fb mb12"><h2>${team?.name} — ${match?.name}</h2><span class="badge b-blue">${match?.date||''}</span></div>
     ${match?.winner?`<div class="alert al-success mb12">🏆 Winner: <strong>${match.winner}</strong>${match.mom?` &nbsp;·&nbsp; ⭐ MOM: <strong>${match.mom}</strong>`:''}</div>`:''}
     <div class="tscroll"><table>
       <thead><tr><th>Player</th><th>Role</th><th>Breakdown</th><th>Points</th></tr></thead>
@@ -657,15 +663,16 @@ function vPoints(){
           <td class="xs muted" style="max-width:300px">${(p.bd||[]).map(b=>`<span style="color:${b.p<0?'var(--red)':'var(--text2)'}">${b.l}(${b.p>0?'+':''}${b.p})</span>`).join(' · ')}</td>
           <td class="${p.pts>=0?'pos':'neg'}" style="font-weight:700">${p.pts>0?'+':''}${p.pts}</td>
         </tr>`).join('')}
-        <tr style="border-top:2px solid var(--border2)">
-          <td colspan="3" style="font-weight:700;color:var(--text2)">Match Total</td>
-          <td><span class="hl" style="font-weight:700;font-size:15px">${scores.total}</span></td>
-        </tr>
+        <tr style="border-top:2px solid var(--border2)"><td colspan="3" style="font-weight:700;color:var(--text2)">Match Total</td>
+          <td><span class="hl" style="font-weight:700;font-size:15px">${scores.total}</span></td></tr>
       </tbody>
     </table></div>
-  </div>` : `<div class="alert al-info">Select a match row above (click "Drill ▾") to see player-level breakdown.</div>`}`;
+  </div>` : '<div class="alert al-info">Select a match row above (click "Drill ▾") to see player-level breakdown.</div>'}`;
 }
 
+// ═══════════════════════════════════════════
+// VIEW: ADD MATCH
+// ═══════════════════════════════════════════
 let addView = 'menu';
 let scorecardMatchId = null;
 
@@ -681,63 +688,30 @@ function vAddMenu(){
   const completed=S.matches.filter(m=>m.completed);
   return`<div class="fb mb16"><h1>Match Manager</h1></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
-    <div class="card" style="cursor:pointer" onclick="addView='create';render()">
-      <div style="font-size:28px">📅</div>
-      <h2 style="color:var(--orange);margin-top:8px">Create Upcoming Match</h2>
-      <p class="muted small">Schedule a match so teams can submit predictions before it starts.</p>
-    </div>
-    <div class="card">
-      <div style="font-size:28px">📤</div>
-      <h2 style="margin-top:8px">Upload Scorecard</h2>
-      <p class="muted small">${upcoming.length?`${upcoming.length} match${upcoming.length>1?'es':''} awaiting scorecard.`:'No upcoming matches — create one first.'}</p>
-    </div>
+    <div class="card" style="cursor:pointer" onclick="addView='create';render()"><div style="font-size:28px">📅</div><h2 style="color:var(--orange);margin-top:8px">Create Upcoming Match</h2><p class="muted small">Schedule a match so teams can submit predictions before it starts.</p></div>
+    <div class="card"><div style="font-size:28px">📤</div><h2 style="margin-top:8px">Upload Scorecard</h2><p class="muted small">${upcoming.length?`${upcoming.length} match${upcoming.length>1?'es':''} awaiting scorecard.`:'No upcoming matches — create one first.'}</p></div>
   </div>
-  ${upcoming.length?`<div class="card mb12">
-    <h2>⏳ Upcoming — Awaiting Scorecard</h2>
-    <div class="tscroll"><table>
-      <thead><tr><th>Match</th><th>Date</th><th>Type</th><th>Predictions</th><th></th></tr></thead>
-      <tbody>${upcoming.map(m=>{
-        const predCount=S.teams.filter(t=>t.predictions?.[m.id]).length;
-        return`<tr>
-          <td style="font-weight:600">${m.name}</td>
-          <td class="muted">${m.date||'—'}</td>
-          <td><span class="badge b-blue">${m.type||'League'}</span></td>
-          <td><span class="badge b-green">${predCount}/${S.teams.length} submitted</span></td>
-          <td class="fc g6">
-            <button class="btn btn-primary btn-sm" onclick="addView='scorecard';scorecardMatchId='${m.id}';render()">📤 Upload Scorecard</button>
-            <button class="btn btn-danger btn-xs" onclick="delMatch('${m.id}')">Delete</button>
-          </td>
-        </tr>`;}).join('')}
-      </tbody>
-    </table></div>
-  </div>`:''}
-  ${completed.length?`<div class="card">
-    <h2>✅ Completed Matches</h2>
-    <div class="tscroll"><table>
-      <thead><tr><th>Match</th><th>Date</th><th>Winner</th><th>MOM</th><th></th></tr></thead>
-      <tbody>${[...completed].reverse().map(m=>`<tr>
-        <td style="font-weight:600">${m.name}</td>
-        <td class="muted">${m.date||'—'}</td>
-        <td>${m.winner?`<span class="badge b-green">${m.winner}</span>`:'—'}</td>
-        <td class="muted small">${m.mom||'—'}</td>
-        <td><button class="btn btn-danger btn-xs" onclick="delMatch('${m.id}')">Delete</button></td>
-      </tr>`).join('')}
-      </tbody>
-    </table></div>
-  </div>`:''}`;
+  ${upcoming.length?`<div class="card mb12"><h2>⏳ Upcoming — Awaiting Scorecard</h2><div class="tscroll"><table>
+    <thead><tr><th>Match</th><th>Date</th><th>Type</th><th>Predictions</th><th></th></tr></thead>
+    <tbody>${upcoming.map(m=>{const predCount=S.teams.filter(t=>t.predictions?.[m.id]).length;return`<tr>
+      <td style="font-weight:600">${m.name}</td><td class="muted">${m.date||'—'}</td><td><span class="badge b-blue">${m.type||'League'}</span></td>
+      <td><span class="badge b-green">${predCount}/${S.teams.length} submitted</span></td>
+      <td class="fc g6"><button class="btn btn-primary btn-sm" onclick="addView='scorecard';scorecardMatchId='${m.id}';render()">📤 Upload Scorecard</button><button class="btn btn-danger btn-xs" onclick="delMatch('${m.id}')">Delete</button></td>
+    </tr>`;}).join('')}</tbody></table></div></div>`:''}
+  ${completed.length?`<div class="card"><h2>✅ Completed Matches</h2><div class="tscroll"><table>
+    <thead><tr><th>Match</th><th>Date</th><th>Winner</th><th>MOM</th><th></th></tr></thead>
+    <tbody>${[...completed].reverse().map(m=>`<tr><td style="font-weight:600">${m.name}</td><td class="muted">${m.date||'—'}</td>
+      <td>${m.winner?`<span class="badge b-green">${m.winner}</span>`:'—'}</td><td class="muted small">${m.mom||'—'}</td>
+      <td><button class="btn btn-danger btn-xs" onclick="delMatch('${m.id}')">Delete</button></td></tr>`).join('')}</tbody></table></div></div>`:''}`;
 }
 
 function vAddCreate(){
   return`<div class="fb mb16"><h1>Create Upcoming Match</h1><button class="btn btn-secondary btn-sm" onclick="addView='menu';render()">← Back</button></div>
   <div class="card">
     <div class="alert al-info mb16">Once created, all teams can submit predictions. Upload the scorecard after the game ends.</div>
-    <div class="fr">
-      <div class="fg"><label>Match Name</label><input id="mn" placeholder="MI vs CSK — Match 12" /></div>
-      <div class="fg"><label>Date</label><input type="date" id="md" value="${new Date().toISOString().split('T')[0]}" /></div>
-    </div>
-    <div class="fg"><label>Match Type</label>
-      <select id="mt"><option value="league">League Stage</option><option value="semifinal">Semi-Final</option><option value="final">Final</option></select>
-    </div>
+    <div class="fr"><div class="fg"><label>Match Name</label><input id="mn" placeholder="MI vs CSK — Match 12" /></div>
+      <div class="fg"><label>Date</label><input type="date" id="md" value="${new Date().toISOString().split('T')[0]}" /></div></div>
+    <div class="fg"><label>Match Type</label><select id="mt"><option value="league">League Stage</option><option value="semifinal">Semi-Final</option><option value="final">Final</option></select></div>
     <button class="btn btn-primary" onclick="createUpcomingMatch()">📅 Create Match & Open Predictions</button>
   </div>`;
 }
@@ -749,9 +723,7 @@ async function createUpcomingMatch(){
   const type=document.getElementById('mt')?.value;
   if(!name){alert('Match name required');return;}
   S.matches.push({id:gid(),name,date,type,completed:false,teamScores:{},winner:'',mom:''});
-  await saveS();
-  addView='menu';
-  render();
+  await saveS(); addView='menu'; render();
   alert(`✅ "${name}" created! Predictions are now open.`);
 }
 
@@ -764,23 +736,12 @@ function vAddScorecard(){
     <p class="muted small mb16">Paste Cricbuzz text OR upload <strong>2 screenshots</strong> (one per innings).</p>
     <div class="alert al-warn mb12">⚠️ Super over stats are NOT counted.</div>
     <div class="fg"><label>Paste Scorecard Text (both innings)</label>
-      <textarea id="sct" placeholder="Paste full scorecard including both innings batting & bowling tables..."></textarea>
-    </div>
+      <textarea id="sct" placeholder="Paste full scorecard including both innings batting & bowling tables..."></textarea></div>
     <div class="sep"></div>
     <p class="small muted mb12">OR upload screenshots:</p>
     <div class="fr">
-      <div class="fg"><label>Innings 1 Screenshot</label>
-        <div class="upload-zone" onclick="document.getElementById('imgup1').click()">
-          <div id="upv1">📷 Innings 1</div>
-          <input type="file" id="imgup1" accept="image/*" style="display:none" onchange="handleImg(this,1)" />
-        </div>
-      </div>
-      <div class="fg"><label>Innings 2 Screenshot</label>
-        <div class="upload-zone" onclick="document.getElementById('imgup2').click()">
-          <div id="upv2">📷 Innings 2</div>
-          <input type="file" id="imgup2" accept="image/*" style="display:none" onchange="handleImg(this,2)" />
-        </div>
-      </div>
+      <div class="fg"><label>Innings 1 Screenshot</label><div class="upload-zone" onclick="document.getElementById('imgup1').click()"><div id="upv1">📷 Innings 1</div><input type="file" id="imgup1" accept="image/*" style="display:none" onchange="handleImg(this,1)" /></div></div>
+      <div class="fg"><label>Innings 2 Screenshot</label><div class="upload-zone" onclick="document.getElementById('imgup2').click()"><div id="upv2">📷 Innings 2</div><input type="file" id="imgup2" accept="image/*" style="display:none" onchange="handleImg(this,2)" /></div></div>
     </div>
     <button class="btn btn-primary mt12" onclick="doParseAI()"><span id="pbt">🤖 Parse with AI</span></button>
   </div>`;
@@ -793,14 +754,9 @@ function vAddStep2(){
   <div class="card mb12">
     <div class="alert al-success mb12">✅ Parsed: ${sc.match?.team1||'?'} vs ${sc.match?.team2||'?'}</div>
     <div class="fr mb12">
-      <div class="fg"><label>Match Winner</label>
-        <input id="ewinner" value="${sc.match?.winner||''}" placeholder="e.g. MI" /></div>
-      <div class="fg"><label>⭐ Man of the Match</label>
-        <select id="emom">
-          <option value="">— Select MOM —</option>
-          ${allPlayers.map(p=>`<option value="${p}" ${p===sc.match?.mom?'selected':''}>${p}</option>`).join('')}
-        </select>
-      </div>
+      <div class="fg"><label>Match Winner</label><input id="ewinner" value="${sc.match?.winner||''}" placeholder="e.g. MI" /></div>
+      <div class="fg"><label>⭐ Man of the Match</label><select id="emom"><option value="">— Select MOM —</option>
+        ${allPlayers.map(p=>`<option value="${p}" ${p===sc.match?.mom?'selected':''}>${p}</option>`).join('')}</select></div>
     </div>
     <div class="stabs">
       <button class="stab active" onclick="stab('bat',this)">Batting (${sc.batting?.length||0})</button>
@@ -813,7 +769,7 @@ function vAddStep2(){
   </div>
   <div class="card">
     <h2>Team Configuration</h2>
-    <p class="muted small mb16">Set Captain/VC and mark winning/abandoned teams.</p>
+    <p class="muted small mb16">For each player, select Captain (×2), Vice-Captain (×1.5), or None (×1).</p>
     ${S.teams.map(t=>teamMatchCfg(t)).join('')}
     <div class="mt16"><button class="btn btn-primary" onclick="submitMatch()">💾 Calculate & Save Scores</button></div>
   </div>`;
@@ -846,53 +802,79 @@ function stab(tab,btn){
   if(btn)btn.classList.add('active');
 }
 
+// ═══════════════════════════════════════════
+// TEAM MATCH CONFIG — per-player C/VC/None radios
+// ═══════════════════════════════════════════
 function teamMatchCfg(t){
+  const pid = (name) => name.replace(/[^a-zA-Z0-9]/g,'_');
   return`<div class="panel mb12">
     <div class="fb mb8"><span style="font-weight:600">${t.name}</span><span class="small muted">${t.owner||''}</span></div>
-    <div class="fr mb8">
-      <div class="fg" style="margin-bottom:0"><label>Captain this match</label>
-        <select id="mc-${t.id}">${t.players.map(p=>`<option value="${p.name}" ${p.name===t.currentCaptain?'selected':''}>${p.name}</option>`).join('')}</select></div>
-      <div class="fg" style="margin-bottom:0"><label>Vice-Captain this match</label>
-        <select id="mvc-${t.id}">${t.players.map(p=>`<option value="${p.name}" ${p.name===t.currentVc?'selected':''}>${p.name}</option>`).join('')}</select></div>
-    </div>
-    <div class="fc g16">
+    <div class="alert al-info mb8 small">Captain = ×2 points · Vice-Captain = ×1.5 points · None = ×1 points</div>
+    <div class="tscroll"><table>
+      <thead><tr><th>Player</th><th>Role</th><th style="text-align:center">Captain (×2)</th><th style="text-align:center">VC (×1.5)</th><th style="text-align:center">None (×1)</th></tr></thead>
+      <tbody>
+        ${t.players.map(p=>{
+          const isC = p.name===t.currentCaptain;
+          const isVC = p.name===t.currentVc;
+          const rn = 'role-'+t.id+'-'+pid(p.name);
+          return '<tr>'+
+            '<td style="font-weight:600">'+p.name+'</td>'+
+            '<td><span class="badge '+(p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':'b-green')+'">'+(p.role||'—')+'</span></td>'+
+            '<td style="text-align:center"><input type="radio" name="'+rn+'" value="captain" data-team="'+t.id+'" data-player="'+p.name+'" '+(isC?'checked':'')+' onclick="enforceSingleRole(\''+t.id+'\',\''+p.name+'\',\'captain\')" style="width:auto;accent-color:var(--gold);transform:scale(1.3)" /></td>'+
+            '<td style="text-align:center"><input type="radio" name="'+rn+'" value="vc" data-team="'+t.id+'" data-player="'+p.name+'" '+(isVC?'checked':'')+' onclick="enforceSingleRole(\''+t.id+'\',\''+p.name+'\',\'vc\')" style="width:auto;accent-color:var(--blue);transform:scale(1.3)" /></td>'+
+            '<td style="text-align:center"><input type="radio" name="'+rn+'" value="none" data-team="'+t.id+'" data-player="'+p.name+'" '+(!isC&&!isVC?'checked':'')+' style="width:auto;transform:scale(1.3)" /></td>'+
+            '</tr>';
+        }).join('')}
+      </tbody>
+    </table></div>
+    <div class="fc g16 mt8">
       <label class="fc g6" style="cursor:pointer"><input type="checkbox" id="mw-${t.id}" style="width:auto" /> Winning IPL team +75</label>
       <label class="fc g6" style="cursor:pointer"><input type="checkbox" id="mab-${t.id}" style="width:auto" /> Abandoned +40</label>
     </div>
   </div>`;
 }
 
+// When user picks C or VC for a player, clear any other player who had that role
+function enforceSingleRole(teamId, playerName, role) {
+  // Find all radios for this team
+  const allRadios = document.querySelectorAll('input[type="radio"][data-team="'+teamId+'"]');
+  allRadios.forEach(r => {
+    if (r.dataset.player !== playerName && r.value === role && r.checked) {
+      // This other player had the same role — set them to "none"
+      const otherName = r.dataset.player;
+      const pid = otherName.replace(/[^a-zA-Z0-9]/g,'_');
+      const noneRadio = document.querySelector('input[name="role-'+teamId+'-'+pid+'"][value="none"]');
+      if (noneRadio) noneRadio.checked = true;
+    }
+  });
+}
+
+// Read C/VC from radios for a given team during submitMatch
+function readCaptainVC(teamId) {
+  let captain = null, vc = null;
+  const allRadios = document.querySelectorAll('input[type="radio"][data-team="'+teamId+'"]:checked');
+  allRadios.forEach(r => {
+    if (r.value === 'captain') captain = r.dataset.player;
+    if (r.value === 'vc') vc = r.dataset.player;
+  });
+  return { captain, vc };
+}
+
 // ═══════════════════════════════════════════
-// AI PARSING
+// AI PARSING — OpenRouter compatible
 // ═══════════════════════════════════════════
 function handleImg(inp, num){
   const f=inp.files[0]; if(!f) return;
   const r=new FileReader();
   r.onload=e=>{
     const b64=e.target.result.split(',')[1]; const mime=f.type;
-    if(num===1){uploadImg1=b64;uploadType1=mime;document.getElementById('upv1').innerHTML=`✅ ${f.name}`;}
-    else{uploadImg2=b64;uploadType2=mime;document.getElementById('upv2').innerHTML=`✅ ${f.name}`;}
+    if(num===1){uploadImg1=b64;uploadType1=mime;document.getElementById('upv1').innerHTML='✅ '+f.name;}
+    else{uploadImg2=b64;uploadType2=mime;document.getElementById('upv2').innerHTML='✅ '+f.name;}
   };
   r.readAsDataURL(f);
 }
 
-const PARSE_PROMPT=`IMPORTANT: Output ONLY raw JSON. Your response must start with { and end with }. No explanation, no markdown, no "Here's", no code fences. Any character before { will break the parser. You are a cricket scorecard parser. Return ONLY valid raw JSON...
-
-Schema:
-{
-  "match":{"team1":"","team2":"","winner":"short name","mom":"player name"},
-  "batting":[{"name":"","team":"","runs":0,"balls":0,"fours":0,"sixes":0,"strikeRate":0.0,"isNotOut":false,"dismissal":""}],
-  "bowling":[{"name":"","team":"","overs":"4.0","maidens":0,"wicketMaidens":0,"runs":0,"wickets":0,"economy":0.0,"hasHattrick":false}],
-  "fielding":[{"name":"","catches":0,"stumpings":0,"runOuts":0}]
-}
-
-RULES:
-- If two innings images are provided, merge both batting and bowling arrays into one combined list
-- Extract fielding from dismissal strings: "c X b Y" = catch by X, "st X b Y" = stumping by X, "run out (X/Y)" = run out, assign runOuts:1 to every player listed
-- wicketMaidens = overs where bowler took wicket AND conceded 0 runs
-- DO NOT include super over data
-- wins: look for "won by" or result text
-- MOM: look for "Player of the match" or "man of the match"`;
+const PARSE_PROMPT = 'IMPORTANT: Output ONLY raw JSON. Your response must start with { and end with }. No explanation, no markdown, no code fences. Any character before { will break the parser. You are a cricket scorecard parser. Return ONLY valid raw JSON.\n\nSchema:\n{"match":{"team1":"","team2":"","winner":"short name","mom":"player name"},"batting":[{"name":"","team":"","runs":0,"balls":0,"fours":0,"sixes":0,"strikeRate":0.0,"isNotOut":false,"dismissal":""}],"bowling":[{"name":"","team":"","overs":"4.0","maidens":0,"wicketMaidens":0,"runs":0,"wickets":0,"economy":0.0,"hasHattrick":false}],"fielding":[{"name":"","catches":0,"stumpings":0,"runOuts":0}]}\n\nRULES:\n- If two innings images are provided, merge both batting and bowling arrays into one combined list\n- Extract fielding from dismissal strings: "c X b Y" = catch by X, "st X b Y" = stumping by X, "run out (X/Y)" = run out, assign runOuts:1 to every player listed\n- wicketMaidens = overs where bowler took wicket AND conceded 0 runs\n- DO NOT include super over data\n- wins: look for "won by" or result text\n- MOM: look for "Player of the match" or "man of the match"';
 
 function extractJSON(str) {
   const objIdx = str.indexOf('{');
@@ -902,10 +884,8 @@ function extractJSON(str) {
   if (objIdx === -1) start = arrIdx;
   else if (arrIdx === -1) start = objIdx;
   else start = Math.min(objIdx, arrIdx);
-
   const open = str[start], close = open === '{' ? '}' : ']';
   let depth = 0, inStr = false, esc = false;
-
   for (let i = start; i < str.length; i++) {
     const c = str[i];
     if (esc) { esc = false; continue; }
@@ -918,29 +898,26 @@ function extractJSON(str) {
   throw new Error('JSON in model response was incomplete or malformed');
 }
 
-// ─── FIX #1: Use WORKER_URL constant instead of placeholder ───
-// ─── FIX #2: Use PARSE_PROMPT (correct variable name) ─────────
-// ─── FIX #3: Properly close the doParseAI function ────────────
 async function doParseAI() {
   if (!checkAdmin('parse a match')) return;
-
   const txt = document.getElementById('sct')?.value.trim();
   const hasImages = uploadImg1 || uploadImg2;
-
   if (!txt && !hasImages) { alert('Paste scorecard text or upload at least one screenshot'); return; }
 
   const btn = document.getElementById('pbt');
   if (btn) btn.innerHTML = '<span class="spinner"></span> Parsing...';
 
+  // Build messages in OpenAI/OpenRouter format
   let userContent;
   if (hasImages) {
     userContent = [];
-    if (uploadImg1) userContent.push({ type: 'image', source: { type: 'base64', media_type: uploadType1, data: uploadImg1 } });
-    if (uploadImg2) userContent.push({ type: 'image', source: { type: 'base64', media_type: uploadType2, data: uploadImg2 } });
+    // OpenRouter/OpenAI vision uses image_url format, NOT Anthropic's source format
+    if (uploadImg1) userContent.push({ type: 'image_url', image_url: { url: 'data:' + uploadType1 + ';base64,' + uploadImg1 } });
+    if (uploadImg2) userContent.push({ type: 'image_url', image_url: { url: 'data:' + uploadType2 + ';base64,' + uploadImg2 } });
     const note = (uploadImg1 && uploadImg2)
       ? 'Two innings screenshots. Image 1 = first innings, Image 2 = second innings. Merge both into one combined JSON.'
       : 'One innings screenshot provided.';
-    userContent.push({ type: 'text', text: txt ? `${note}\n${txt}` : note });
+    userContent.push({ type: 'text', text: txt ? note + '\n' + txt : note });
   } else {
     userContent = txt;
   }
@@ -949,11 +926,30 @@ async function doParseAI() {
     const res = await fetch(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ system: PARSE_PROMPT, messages: [{ role: 'user', content: userContent }] })
+      body: JSON.stringify({
+        system: PARSE_PROMPT,
+        messages: [{ role: 'user', content: userContent }]
+      })
     });
 
     const data = await res.json();
-    const raw = data.content?.[0]?.text || '';
+
+    // Handle both OpenRouter (OpenAI format) and Anthropic response formats
+    let raw = '';
+    if (data.choices && data.choices[0]?.message?.content) {
+      // OpenRouter / OpenAI format
+      raw = data.choices[0].message.content;
+    } else if (data.content && data.content[0]?.text) {
+      // Anthropic format
+      raw = data.content[0].text;
+    } else if (typeof data.content === 'string') {
+      raw = data.content;
+    }
+
+    if (!raw) {
+      console.error('Full API response:', JSON.stringify(data));
+      throw new Error('Empty response from AI. Check console for full response.');
+    }
 
     if (raw.startsWith('API_ERROR') || raw.startsWith('WORKER_ERROR')) {
       throw new Error(raw);
@@ -961,7 +957,6 @@ async function doParseAI() {
 
     const parsed = extractJSON(raw);
 
-    // Get match metadata from the existing match record
     const existingMatch = S.matches.find(x => x.id === scorecardMatchId);
     pendingSC = {
       ...parsed,
@@ -976,9 +971,8 @@ async function doParseAI() {
     if (btn) btn.innerHTML = '🤖 Parse with AI';
     alert('Parse failed: ' + e.message);
   }
-} // ← FIX #3: This closing brace was missing
+}
 
-// ─── FIX #4: clearPending was trapped inside doParseAI ────────
 function clearPending(){
   pendingSC=null;
   uploadImg1=null;
@@ -986,6 +980,9 @@ function clearPending(){
   render();
 }
 
+// ═══════════════════════════════════════════
+// SUBMIT MATCH — reads C/VC from per-player radios
+// ═══════════════════════════════════════════
 async function submitMatch(){
   if(!checkAdmin('save a match')) return;
   if(!pendingSC) return;
@@ -1004,20 +1001,24 @@ async function submitMatch(){
   matchRec.teamScores={};
 
   for(const t of S.teams){
-    const cap=document.getElementById(`mc-${t.id}`)?.value||t.currentCaptain;
-    const vc=document.getElementById(`mvc-${t.id}`)?.value||t.currentVc;
-    const isWin=document.getElementById(`mw-${t.id}`)?.checked;
-    const isAb=document.getElementById(`mab-${t.id}`)?.checked;
+    // Read C/VC from radio buttons
+    const { captain: cap, vc } = readCaptainVC(t.id);
+    const finalCap = cap || t.currentCaptain;
+    const finalVc = vc || t.currentVc;
+    const isWin=document.getElementById('mw-'+t.id)?.checked;
+    const isAb=document.getElementById('mab-'+t.id)?.checked;
+
     const prevC=t.currentCaptain, prevVC=t.currentVc;
-    t.currentCaptain=cap; t.currentVc=vc;
+    t.currentCaptain=finalCap; t.currentVc=finalVc;
     const sc={...pendingSC,match:{...pendingSC.match,winner,mom},id:matchRec.id};
     const{total,players}=processTeamMatch(t,sc,matchRec.id);
     t.currentCaptain=prevC; t.currentVc=prevVC;
+
     let extra=0,extraP=[];
     if(isAb){extra+=40;extraP.push({name:'Match abandoned',pts:40,bd:[{l:'Abandoned +40',p:40,c:'bonus'}]});}
     else if(isWin){extra+=75;extraP.push({name:'Winning team',pts:75,bd:[{l:'Win bonus +75',p:75,c:'bonus'}]});}
-    matchRec.teamScores[t.id]={total:total+extra,captain:cap,vc,players:[...players,...extraP]};
-    t.currentCaptain=cap; t.currentVc=vc;
+    matchRec.teamScores[t.id]={total:total+extra,captain:finalCap,vc:finalVc,players:[...players,...extraP]};
+    t.currentCaptain=finalCap; t.currentVc=finalVc;
   }
 
   for(const t of S.teams){
@@ -1032,59 +1033,33 @@ async function submitMatch(){
   scorecardMatchId=null;
   await saveS();
   nav('matches');
-  alert(`✅ Scores saved for "${matchRec.name}"! Predictions marked automatically.`);
+  alert('✅ Scores saved for "'+matchRec.name+'"! Predictions marked automatically.');
 }
 
+// ═══════════════════════════════════════════
+// VIEW: SQUAD
+// ═══════════════════════════════════════════
 function vSquad(){
   if(!S.squad) S.squad=[];
-  const byOwner = {};
-  for(const p of S.squad){
-    const key = p.ownerTeam||'Unassigned';
-    if(!byOwner[key]) byOwner[key]=[];
-    byOwner[key].push(p);
-  }
   const iplTeams=['MI','CSK','RCB','KKR','PBKS','RR','SRH','DC','GT','LSG'];
-
   return`<div class="fb mb16">
     <h1>🏏 Squad Pool</h1>
     ${isAdmin?`<div class="fc g8">
       <button class="btn btn-primary btn-sm" onclick="showAddSquadPlayer()">+ Add Player</button>
-      <label class="btn btn-secondary btn-sm" style="cursor:pointer">
-        📥 Import xlsx <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importSquadXlsx(this)" />
-      </label>
+      <label class="btn btn-secondary btn-sm" style="cursor:pointer">📥 Import xlsx <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importSquadXlsx(this)" /></label>
       <button class="btn btn-ghost btn-sm" onclick="exportSquadTemplate()">⬇ Template</button>
     </div>`:''}
   </div>
-  <div class="alert al-info mb16">
-    The squad is the global pool of all available players. Each fantasy team's Playing XI is selected from this pool.
-    Expected xlsx columns: <strong>Name · IPL Team · Role · Owner Team</strong>
-  </div>
-
-  ${!S.squad.length?`<div class="empty"><div class="icon">🏏</div><h2>No players yet</h2><p>Import an xlsx file or add players manually</p></div>`:`
-
-  <div class="card mb12" style="padding:10px 16px">
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <input id="squad-search" placeholder="Search player…" style="width:180px" oninput="renderSquadFilter()" />
-      <select id="squad-filter-team" style="width:120px" onchange="renderSquadFilter()">
-        <option value="">All IPL Teams</option>
-        ${iplTeams.map(t=>`<option>${t}</option>`).join('')}
-      </select>
-      <select id="squad-filter-role" style="width:130px" onchange="renderSquadFilter()">
-        <option value="">All Roles</option>
-        <option>Batsman</option><option>Bowler</option><option>All-rounder</option><option>Wicket-keeper</option>
-      </select>
-      <select id="squad-filter-owner" style="width:140px" onchange="renderSquadFilter()">
-        <option value="">All Owner Teams</option>
-        ${[...new Set(S.squad.map(p=>p.ownerTeam||'Unassigned'))].map(o=>`<option>${o}</option>`).join('')}
-      </select>
-      <span class="muted small">${S.squad.length} players total</span>
-    </div>
-  </div>
-
-  <div id="squad-table-container">
-    ${renderSquadTable(S.squad)}
-  </div>`}
-
+  <div class="alert al-info mb16">The squad is the global pool of all available players. Each fantasy team's Playing XI is selected from this pool. Expected xlsx columns: <strong>Name · IPL Team · Role · Owner Team</strong></div>
+  ${!S.squad.length?'<div class="empty"><div class="icon">🏏</div><h2>No players yet</h2><p>Import an xlsx file or add players manually</p></div>':`
+  <div class="card mb12" style="padding:10px 16px"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <input id="squad-search" placeholder="Search player…" style="width:180px" oninput="renderSquadFilter()" />
+    <select id="squad-filter-team" style="width:120px" onchange="renderSquadFilter()"><option value="">All IPL Teams</option>${iplTeams.map(t=>`<option>${t}</option>`).join('')}</select>
+    <select id="squad-filter-role" style="width:130px" onchange="renderSquadFilter()"><option value="">All Roles</option><option>Batsman</option><option>Bowler</option><option>All-rounder</option><option>Wicket-keeper</option></select>
+    <select id="squad-filter-owner" style="width:140px" onchange="renderSquadFilter()"><option value="">All Owner Teams</option>${[...new Set(S.squad.map(p=>p.ownerTeam||'Unassigned'))].map(o=>`<option>${o}</option>`).join('')}</select>
+    <span class="muted small">${S.squad.length} players total</span>
+  </div></div>
+  <div id="squad-table-container">${renderSquadTable(S.squad)}</div>`}
   <div id="mc"></div>`;
 }
 
@@ -1093,14 +1068,11 @@ function renderSquadTable(players){
   return`<div class="card"><div class="tscroll"><table>
     <thead><tr><th>Name</th><th>IPL Team</th><th>Role</th><th>Owner Team</th>${isAdmin?'<th></th>':''}</tr></thead>
     <tbody>${players.map(p=>`<tr>
-      <td style="font-weight:600">${p.name}</td>
-      <td><span class="badge b-blue">${p.iplTeam||'—'}</span></td>
+      <td style="font-weight:600">${p.name}</td><td><span class="badge b-blue">${p.iplTeam||'—'}</span></td>
       <td><span class="badge ${p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':'b-green'}">${p.role||'—'}</span></td>
       <td class="muted">${p.ownerTeam||'—'}</td>
       ${isAdmin?`<td><button class="btn btn-danger btn-xs" onclick="removeSquadPlayer('${p.id}')">✕</button></td>`:''}
-    </tr>`).join('')}
-    </tbody>
-  </table></div></div>`;
+    </tr>`).join('')}</tbody></table></div></div>`;
 }
 
 function renderSquadFilter(){
@@ -1112,8 +1084,7 @@ function renderSquadFilter(){
     (!search || p.name?.toLowerCase().includes(search)) &&
     (!filterTeam || p.iplTeam===filterTeam) &&
     (!filterRole || p.role===filterRole) &&
-    (!filterOwner || (p.ownerTeam||'Unassigned')===filterOwner)
-  );
+    (!filterOwner || (p.ownerTeam||'Unassigned')===filterOwner));
   const container=document.getElementById('squad-table-container');
   if(container) container.innerHTML=renderSquadTable(filtered);
 }
@@ -1123,14 +1094,9 @@ function showAddSquadPlayer(){
   addModal('add-squad-modal',`<div class="mhead"><h2>Add Squad Player</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('add-squad-modal')">✕</button></div>
   <div class="alert al-warn mb12 small">Name must exactly match Cricbuzz spelling for auto-scoring.</div>
   <div class="fg"><label>Full Name (as on Cricbuzz)</label><input id="sq-name" placeholder="Virat Kohli" /></div>
-  <div class="fr">
-    <div class="fg"><label>IPL Team</label>
-      <select id="sq-iplteam"><option value="">Select…</option>${['MI','CSK','RCB','KKR','PBKS','RR','SRH','DC','GT','LSG'].map(x=>`<option>${x}</option>`).join('')}</select></div>
-    <div class="fg"><label>Role</label>
-      <select id="sq-role"><option value="">Select…</option><option>Batsman</option><option>Bowler</option><option>All-rounder</option><option>Wicket-keeper</option></select></div>
-  </div>
-  <div class="fg"><label>Owner Team</label>
-    <select id="sq-owner"><option value="">Unassigned</option>${ownerOpts}</select></div>
+  <div class="fr"><div class="fg"><label>IPL Team</label><select id="sq-iplteam"><option value="">Select…</option>${['MI','CSK','RCB','KKR','PBKS','RR','SRH','DC','GT','LSG'].map(x=>`<option>${x}</option>`).join('')}</select></div>
+    <div class="fg"><label>Role</label><select id="sq-role"><option value="">Select…</option><option>Batsman</option><option>Bowler</option><option>All-rounder</option><option>Wicket-keeper</option></select></div></div>
+  <div class="fg"><label>Owner Team</label><select id="sq-owner"><option value="">Unassigned</option>${ownerOpts}</select></div>
   <button class="btn btn-primary" onclick="addSquadPlayer()">Add Player</button>`);
 }
 
@@ -1178,39 +1144,28 @@ async function importSquadXlsx(inp){
       added++;
     }
     await saveS();render();
-    alert(`✅ Imported ${added} players. ${skipped} skipped (duplicates or empty rows).`);
-  }catch(e){
-    alert('Import failed: '+e.message+'\n\nMake sure the file is a valid xlsx.');
-  }
+    alert('✅ Imported '+added+' players. '+skipped+' skipped (duplicates or empty rows).');
+  }catch(e){ alert('Import failed: '+e.message); }
 }
 
 function exportSquadTemplate(){
-  const ws=XLSX.utils.aoa_to_sheet([
-    ['Name','IPL Team','Role','Owner Team'],
-    ['Virat Kohli','RCB','Batsman','Team Alpha'],
-    ['Jasprit Bumrah','MI','Bowler','Team Beta'],
-  ]);
+  const ws=XLSX.utils.aoa_to_sheet([['Name','IPL Team','Role','Owner Team'],['Virat Kohli','RCB','Batsman','Team Alpha'],['Jasprit Bumrah','MI','Bowler','Team Beta']]);
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Squad');
   XLSX.writeFile(wb,'squad_template.xlsx');
 }
 
+// ═══════════════════════════════════════════
+// FORMATION RULES
+// ═══════════════════════════════════════════
 const FORMATION = { Batsman:4, 'All-rounder':2, 'Wicket-keeper':1, Bowler:4 };
-const FLEX_ROLES = {
-  'All-rounder': ['Batsman','Bowler','All-rounder'],
-  'Wicket-keeper': ['Batsman','Wicket-keeper']
-};
 
 function validateFormation(players) {
   const slots = { Batsman:0, 'All-rounder':0, 'Wicket-keeper':0, Bowler:0 };
-  for (const p of players) {
-    const r = p.role;
-    if (slots[r] !== undefined) slots[r]++;
-  }
+  for (const p of players) if (slots[p.role] !== undefined) slots[p.role]++;
   const errors = [];
-  for (const [role, needed] of Object.entries(FORMATION)) {
-    if (slots[role] !== needed) errors.push(`Need ${needed} ${role}(s), have ${slots[role]}`);
-  }
+  for (const [role, needed] of Object.entries(FORMATION))
+    if (slots[role] !== needed) errors.push('Need '+needed+' '+role+'(s), have '+slots[role]);
   return errors;
 }
 
@@ -1220,15 +1175,16 @@ function formationStatus(players) {
   return slots;
 }
 
-function hasMatchStarted() {
-  return S.matches.length > 0;
-}
+function hasMatchStarted() { return S.matches.length > 0; }
 
+// ═══════════════════════════════════════════
+// VIEW: TEAMS
+// ═══════════════════════════════════════════
 function vTeams(){
   if (!isAdmin) return vTeamsPublic();
   return`<div class="fb mb16"><h1>👥 Teams — Playing XI</h1><button class="btn btn-primary" onclick="showAddTeam()">+ Add Team</button></div>
   <div class="alert al-info mb12 small">Playing XI (4 BAT · 4 BOWL · 2 AR · 1 WK) is selected from each team's squad. Go to 🏏 Squad to import players first.</div>
-  ${S.teams.length===0?`<div class="empty"><div class="icon">👥</div><h2>No teams yet</h2><button class="btn btn-primary" onclick="showAddTeam()">Add First Team</button></div>`
+  ${S.teams.length===0?'<div class="empty"><div class="icon">👥</div><h2>No teams yet</h2><button class="btn btn-primary" onclick="showAddTeam()">Add First Team</button></div>'
   :S.teams.map(t=>teamCard(t)).join('')}
   <div id="mc"></div>`;
 }
@@ -1238,26 +1194,17 @@ function vTeamsPublic(){
   return`<div class="fb mb16"><h1>👥 Team Lineups</h1></div>
   <div class="alert al-info mb16">Formation: 4 Batsmen · 4 Bowlers · 2 All-rounders · 1 Wicket-keeper</div>
   ${S.teams.map(t=>{
-    const tot=teamTotal(t);
-    const f=formationStatus(t.players);
-    return`<div class="card mb12">
-      <div class="fb mb12">
-        <div><span style="font-weight:700;font-size:15px">${t.name}</span>${t.owner?`<span class="muted small" style="margin-left:8px">· ${t.owner}</span>`:''}</div>
-        <span class="hl" style="font-weight:700">${tot} pts</span>
-      </div>
-      <div class="fc g8 mb12">
-        <span class="badge b-gold">C: ${t.currentCaptain||'—'}</span>
-        <span class="badge b-blue">VC: ${t.currentVc||'—'}</span>
-        ${['Batsman','All-rounder','Wicket-keeper','Bowler'].map(r=>`<span class="badge b-gray">${r.slice(0,2)}: ${f[r]||0}/${FORMATION[r]}</span>`).join('')}
-      </div>
-      ${t.players.length?`<div class="tscroll"><table>
-        <thead><tr><th>Player</th><th>IPL Team</th><th>Role</th></tr></thead>
-        <tbody>${t.players.map(p=>`<tr>
-          <td>${p.name}${p.name===t.currentCaptain?' <span class="badge b-gold">C</span>':''}${p.name===t.currentVc?' <span class="badge b-blue">VC</span>':''}</td>
-          <td class="muted">${p.iplTeam||'—'}</td>
-          <td><span class="badge ${p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':'b-green'}">${p.role||'—'}</span></td>
-        </tr>`).join('')}</tbody>
-      </table></div>`:'<p class="muted small">No players</p>'}
+    const tot=teamTotal(t); const f=formationStatus(t.players);
+    return`<div class="card mb12"><div class="fb mb12">
+      <div><span style="font-weight:700;font-size:15px">${t.name}</span>${t.owner?`<span class="muted small" style="margin-left:8px">· ${t.owner}</span>`:''}</div>
+      <span class="hl" style="font-weight:700">${tot} pts</span></div>
+      <div class="fc g8 mb12"><span class="badge b-gold">C: ${t.currentCaptain||'—'}</span><span class="badge b-blue">VC: ${t.currentVc||'—'}</span>
+        ${['Batsman','All-rounder','Wicket-keeper','Bowler'].map(r=>`<span class="badge b-gray">${r.slice(0,2)}: ${f[r]||0}/${FORMATION[r]}</span>`).join('')}</div>
+      ${t.players.length?`<div class="tscroll"><table><thead><tr><th>Player</th><th>IPL Team</th><th>Role</th></tr></thead><tbody>${t.players.map(p=>`<tr>
+        <td>${p.name}${p.name===t.currentCaptain?' <span class="badge b-gold">C</span>':''}${p.name===t.currentVc?' <span class="badge b-blue">VC</span>':''}</td>
+        <td class="muted">${p.iplTeam||'—'}</td>
+        <td><span class="badge ${p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':'b-green'}">${p.role||'—'}</span></td>
+      </tr>`).join('')}</tbody></table></div>`:'<p class="muted small">No players</p>'}
     </div>`;
   }).join('')}`;
 }
@@ -1269,39 +1216,28 @@ function teamCard(t){
   const formErrors=validateFormation(t.players);
   const seasonStarted=hasMatchStarted();
   const mySquad=(S.squad||[]).filter(p=>p.ownerTeam===t.name);
-  const notInXI=mySquad.filter(sq=>!t.players.some(p=>p.name===sq.name));
 
-  return`<div class="card mb12">
-    <div class="fb mb12">
-      <div><span style="font-weight:700;font-size:15px">${t.name}</span>${t.owner?`<span class="muted small" style="margin-left:8px">${t.owner}</span>`:''}</div>
-      <div class="fc g8">
-        <span class="hl" style="font-weight:700">${tot} pts</span>
-        ${!seasonStarted&&mySquad.length?`<button class="btn btn-secondary btn-sm" onclick="showPickXI('${t.id}')">🎯 Pick XI</button>`:''}
-        <button class="btn btn-danger btn-sm" onclick="delTeam('${t.id}')">Delete</button>
-      </div>
-    </div>
+  return`<div class="card mb12"><div class="fb mb12">
+    <div><span style="font-weight:700;font-size:15px">${t.name}</span>${t.owner?`<span class="muted small" style="margin-left:8px">${t.owner}</span>`:''}</div>
+    <div class="fc g8"><span class="hl" style="font-weight:700">${tot} pts</span>
+      ${!seasonStarted&&mySquad.length?`<button class="btn btn-secondary btn-sm" onclick="showPickXI('${t.id}')">🎯 Pick XI</button>`:''}
+      <button class="btn btn-danger btn-sm" onclick="delTeam('${t.id}')">Delete</button></div></div>
     <div class="fc g8 mb8" style="flex-wrap:wrap">
-      <span class="badge b-gold">C: ${t.currentCaptain||'None'}</span>
-      <span class="badge b-blue">VC: ${t.currentVc||'None'}</span>
+      <span class="badge b-gold">C: ${t.currentCaptain||'None'}</span><span class="badge b-blue">VC: ${t.currentVc||'None'}</span>
       ${['Batsman','All-rounder','Wicket-keeper','Bowler'].map(r=>`<span class="badge ${f[r]===FORMATION[r]?'b-green':'b-red'}">${r.slice(0,3)}: ${f[r]||0}/${FORMATION[r]}</span>`).join('')}
       <span class="badge b-gray xs">Squad: ${mySquad.length} · XI: ${t.players.length}/11</span>
       <span class="badge b-gray xs">Season P:${15-(sw.player||0)} C:${5-(sw.captain||0)} VC:${5-(sw.vc||0)}</span>
     </div>
     ${formErrors.length&&t.players.length===11?`<div class="alert al-warn mb8 small">⚠️ Formation: ${formErrors.join(' · ')}</div>`:''}
     ${!seasonStarted&&t.players.length<11?`<div class="alert al-warn mb8 small">⚠️ XI incomplete (${t.players.length}/11). Use "Pick XI" to select from squad.</div>`:''}
-    ${t.players.length?`<div class="tscroll"><table>
-      <thead><tr><th>Player</th><th>IPL Team</th><th>Role</th><th style="text-align:right">Actions</th></tr></thead>
-      <tbody>${t.players.map(p=>`<tr>
-        <td>${p.name}${p.name===t.currentCaptain?' <span class="badge b-gold">C</span>':''}${p.name===t.currentVc?' <span class="badge b-blue">VC</span>':''}</td>
-        <td class="muted">${p.iplTeam||'—'}</td>
-        <td><span class="badge ${p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':'b-green'}">${p.role||'—'}</span></td>
-        <td style="text-align:right">
-          ${!seasonStarted?`<button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','captain')">C</button>
-          <button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','vc')">VC</button>
-          <button class="btn btn-danger btn-xs" onclick="removeFromXI('${t.id}','${p.name}')">✕</button>`:''}
-        </td>
-      </tr>`).join('')}</tbody>
-    </table></div>`:'<p class="muted small">No players in XI yet — use "Pick XI"</p>'}
+    ${t.players.length?`<div class="tscroll"><table><thead><tr><th>Player</th><th>IPL Team</th><th>Role</th><th style="text-align:right">Actions</th></tr></thead><tbody>${t.players.map(p=>`<tr>
+      <td>${p.name}${p.name===t.currentCaptain?' <span class="badge b-gold">C</span>':''}${p.name===t.currentVc?' <span class="badge b-blue">VC</span>':''}</td>
+      <td class="muted">${p.iplTeam||'—'}</td>
+      <td><span class="badge ${p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':'b-green'}">${p.role||'—'}</span></td>
+      <td style="text-align:right">${!seasonStarted?`<button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','captain')">C</button>
+        <button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','vc')">VC</button>
+        <button class="btn btn-danger btn-xs" onclick="removeFromXI('${t.id}','${p.name}')">✕</button>`:''}</td>
+    </tr>`).join('')}</tbody></table></div>`:'<p class="muted small">No players in XI yet — use "Pick XI"</p>'}
   </div>`;
 }
 
@@ -1310,36 +1246,22 @@ function showPickXI(tid){
   const mySquad=(S.squad||[]).filter(p=>p.ownerTeam===t.name);
   if(!mySquad.length){alert('No squad players found for this team. Import squad first in the Squad tab.');return;}
   const f=formationStatus(t.players);
-  const remaining=Object.entries(FORMATION).map(([r,n])=>`${r}: ${n-(f[r]||0)} more needed`).filter(s=>!s.includes('0 more')).join(' · ')||'Formation complete ✅';
-
+  const remaining=Object.entries(FORMATION).map(([r,n])=>r+': '+(n-(f[r]||0))+' more needed').filter(s=>!s.includes('0 more')).join(' · ')||'Formation complete ✅';
   addModal('pick-xi-modal',`<div class="mhead"><h2>Pick XI — ${t.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('pick-xi-modal')">✕</button></div>
   <div class="alert al-info mb12 small">Formation needed: 4 BAT · 4 BOWL · 2 AR · 1 WK · ${remaining}</div>
-  <div class="fg"><label>Add Player to XI</label>
-    <select id="pxi-player">
-      <option value="">— Select player from squad —</option>
-      ${mySquad.map(p=>{
-        const inXI=t.players.some(x=>x.name===p.name);
-        return`<option value="${p.name}" ${inXI?'disabled':''} data-role="${p.role}">${p.name} (${p.role||'?'}) ${p.iplTeam?'· '+p.iplTeam:''} ${inXI?'✓ IN XI':''}  </option>`;
-      }).join('')}
-    </select>
-  </div>
-  <div class="fr mb12">
-    <div class="fg"><label class="fc g6"><input type="checkbox" id="pxi-cap" style="width:auto"/> Captain</label></div>
-    <div class="fg"><label class="fc g6"><input type="checkbox" id="pxi-vc" style="width:auto"/> Vice-Captain</label></div>
-  </div>
+  <div class="fg"><label>Add Player to XI</label><select id="pxi-player"><option value="">— Select player from squad —</option>
+    ${mySquad.map(p=>{const inXI=t.players.some(x=>x.name===p.name);return`<option value="${p.name}" ${inXI?'disabled':''} data-role="${p.role}">${p.name} (${p.role||'?'}) ${p.iplTeam?'· '+p.iplTeam:''} ${inXI?'✓ IN XI':''}</option>`;}).join('')}</select></div>
+  <div class="fr mb12"><div class="fg"><label class="fc g6"><input type="checkbox" id="pxi-cap" style="width:auto"/> Captain</label></div>
+    <div class="fg"><label class="fc g6"><input type="checkbox" id="pxi-vc" style="width:auto"/> Vice-Captain</label></div></div>
   <button class="btn btn-primary" onclick="addToXI('${tid}')">Add to XI</button>
-  <div class="sep"></div>
-  <p class="small muted">Current XI (${t.players.length}/11):</p>
-  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
-    ${t.players.map(p=>`<span class="badge b-gray">${p.name}${p.name===t.currentCaptain?' C':p.name===t.currentVc?' VC':''}</span>`).join('')}
-  </div>`);
+  <div class="sep"></div><p class="small muted">Current XI (${t.players.length}/11):</p>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${t.players.map(p=>`<span class="badge b-gray">${p.name}${p.name===t.currentCaptain?' C':p.name===t.currentVc?' VC':''}</span>`).join('')}</div>`);
 }
 
 async function addToXI(tid){
   if(!checkAdmin('add to XI')) return;
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
-  const sel=document.getElementById('pxi-player');
-  const name=sel?.value;
+  const name=document.getElementById('pxi-player')?.value;
   if(!name){alert('Select a player');return;}
   const isCap=document.getElementById('pxi-cap')?.checked;
   const isVc=document.getElementById('pxi-vc')?.checked;
@@ -1347,9 +1269,7 @@ async function addToXI(tid){
   const sqPlayer=(S.squad||[]).find(p=>p.name===name&&p.ownerTeam===t.name);
   if(!sqPlayer){alert('Player not found in squad');return;}
   const f=formationStatus(t.players);
-  if((f[sqPlayer.role]||0)>=FORMATION[sqPlayer.role]){
-    alert(`Formation slot full for ${sqPlayer.role} (max ${FORMATION[sqPlayer.role]}). Remove a ${sqPlayer.role} first.`);return;
-  }
+  if((f[sqPlayer.role]||0)>=FORMATION[sqPlayer.role]){alert('Formation slot full for '+sqPlayer.role+' (max '+FORMATION[sqPlayer.role]+'). Remove one first.');return;}
   t.players.push({id:gid(),name:sqPlayer.name,iplTeam:sqPlayer.iplTeam,role:sqPlayer.role});
   if(isCap||!t.currentCaptain) t.currentCaptain=name;
   if(isVc||(!t.currentVc&&t.currentCaptain!==name)) t.currentVc=name;
@@ -1375,9 +1295,8 @@ function showAddTeam(){
 
 function addModal(id,html){
   closeModal(id);
-  const d=document.createElement('div');
-  d.className='mbackdrop';d.id=id;
-  d.innerHTML=`<div class="mbox">${html}</div>`;
+  const d=document.createElement('div');d.className='mbackdrop';d.id=id;
+  d.innerHTML='<div class="mbox">'+html+'</div>';
   d.addEventListener('click',e=>{if(e.target===d)closeModal(id);});
   document.body.appendChild(d);
 }
@@ -1407,136 +1326,63 @@ async function delTeam(tid){
   await saveS();render();
 }
 
-function getMatchDates() {
-  const map = {};
-  for (const m of S.matches) {
-    if (!m.date) continue;
-    if (!map[m.date]) map[m.date] = [];
-    map[m.date].push(m.id);
-  }
-  return map;
-}
-
-function getDailyFreeSwapsUsed(team) {
-  const used = {};
-  for (const h of (team.swaps?.history || [])) {
-    if (h.isFree && h.matchDate) {
-      used[h.matchDate] = (used[h.matchDate] || 0) + 1;
-    }
-  }
-  return used;
-}
-
-function getDailyFreeSwapsAllowed(dateStr) {
-  const dateMap = getMatchDates();
-  return (dateMap[dateStr] || []).length;
-}
-
-function canUseFreeSwap(team, dateStr) {
-  if (!dateStr) return false;
-  const allowed = getDailyFreeSwapsAllowed(dateStr);
-  if (allowed === 0) return false;
-  const usedMap = getDailyFreeSwapsUsed(team);
-  return (usedMap[dateStr] || 0) < allowed;
-}
+// ═══════════════════════════════════════════
+// VIEW: SWAPS
+// ═══════════════════════════════════════════
+function getMatchDates(){const map={};for(const m of S.matches){if(!m.date)continue;if(!map[m.date])map[m.date]=[];map[m.date].push(m.id);}return map;}
+function getDailyFreeSwapsUsed(team){const used={};for(const h of(team.swaps?.history||[])){if(h.isFree&&h.matchDate){used[h.matchDate]=(used[h.matchDate]||0)+1;}}return used;}
+function getDailyFreeSwapsAllowed(dateStr){const dateMap=getMatchDates();return(dateMap[dateStr]||[]).length;}
+function canUseFreeSwap(team,dateStr){if(!dateStr)return false;const allowed=getDailyFreeSwapsAllowed(dateStr);if(allowed===0)return false;const usedMap=getDailyFreeSwapsUsed(team);return(usedMap[dateStr]||0)<allowed;}
 
 function vSwaps(){
   return`<div class="fb mb16"><h1>Swap Tracker</h1></div>
-  <div class="alert al-info mb12">
-    <strong>Swap Rules:</strong> Each match day gives 1 free swap (2 if 2 games that day) — free swaps don't count against your season total.
-    Season limits: <strong>15 player swaps</strong> · 5 captain · 5 VC. <strong>Wrong swap = −300 pts.</strong>
-  </div>
-  ${S.teams.map(t=>swapCard(t)).join('')}
-  <div id="mc"></div>`;
+  <div class="alert al-info mb12"><strong>Swap Rules:</strong> Each match day gives 1 free swap (2 if 2 games that day) — free swaps don't count against your season total. Season limits: <strong>15 player swaps</strong> · 5 captain · 5 VC. <strong>Wrong swap = −300 pts.</strong></div>
+  ${S.teams.map(t=>swapCard(t)).join('')}<div id="mc"></div>`;
 }
 
 function swapCard(t){
-  const sw = t.swaps || {player:0, captain:0, vc:0, history:[]};
-  const freeUsedMap = getDailyFreeSwapsUsed(t);
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todayAllowed = getDailyFreeSwapsAllowed(todayStr);
-  const todayUsed = freeUsedMap[todayStr] || 0;
-  const todayFreeLeft = Math.max(0, todayAllowed - todayUsed);
-
-  return`<div class="card mb12">
-    <div class="fb mb12">
-      <span style="font-weight:700">${t.name}</span>
-      ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="showSwapModal('${t.id}')">+ Log Swap</button>`:''}
-    </div>
+  const sw=t.swaps||{player:0,captain:0,vc:0,history:[]};
+  const freeUsedMap=getDailyFreeSwapsUsed(t);
+  const todayStr=new Date().toISOString().split('T')[0];
+  const todayAllowed=getDailyFreeSwapsAllowed(todayStr);
+  const todayUsed=freeUsedMap[todayStr]||0;
+  const todayFreeLeft=Math.max(0,todayAllowed-todayUsed);
+  return`<div class="card mb12"><div class="fb mb12"><span style="font-weight:700">${t.name}</span>
+    ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="showSwapModal('${t.id}')">+ Log Swap</button>`:''}</div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
-      <div class="stat-card">
-        <div class="val ${todayFreeLeft===0?'neg':'pos'}">${todayFreeLeft}</div>
-        <div class="lbl">Free Today</div>
-        <div class="pbar"><div class="pfill" style="width:${todayAllowed>0?(todayFreeLeft/todayAllowed)*100:0}%"></div></div>
-      </div>
-      ${[{l:'Season Swaps',u:sw.player||0,max:15},{l:'Captain Swaps',u:sw.captain||0,max:5},{l:'VC Swaps',u:sw.vc||0,max:5}].map(x=>`
-        <div class="stat-card"><div class="val ${x.max-x.u<=1?'neg':''}">${x.max-x.u}/${x.max}</div><div class="lbl">${x.l} Left</div>
-        <div class="pbar"><div class="pfill" style="width:${((x.max-x.u)/x.max)*100}%"></div></div></div>`).join('')}
+      <div class="stat-card"><div class="val ${todayFreeLeft===0?'neg':'pos'}">${todayFreeLeft}</div><div class="lbl">Free Today</div><div class="pbar"><div class="pfill" style="width:${todayAllowed>0?(todayFreeLeft/todayAllowed)*100:0}%"></div></div></div>
+      ${[{l:'Season Swaps',u:sw.player||0,max:15},{l:'Captain Swaps',u:sw.captain||0,max:5},{l:'VC Swaps',u:sw.vc||0,max:5}].map(x=>`<div class="stat-card"><div class="val ${x.max-x.u<=1?'neg':''}">${x.max-x.u}/${x.max}</div><div class="lbl">${x.l} Left</div><div class="pbar"><div class="pfill" style="width:${((x.max-x.u)/x.max)*100}%"></div></div></div>`).join('')}
     </div>
-    ${(sw.history||[]).length?`<h3>History</h3><div class="tscroll"><table>
-      <thead><tr><th>Type</th><th>Out</th><th>In</th><th>Match</th><th>Kind</th><th>Status</th></tr></thead>
-      <tbody>${[...(sw.history||[])].map((s,idx)=>`<tr>
-        <td><span class="badge ${s.type==='player'?'b-blue':s.type==='captain'?'b-gold':'b-purple'}">${s.type}</span></td>
+    ${(sw.history||[]).length?`<h3>History</h3><div class="tscroll"><table><thead><tr><th>Type</th><th>Out</th><th>In</th><th>Match</th><th>Kind</th><th>Status</th></tr></thead><tbody>
+      ${[...(sw.history||[])].map((s,idx)=>`<tr><td><span class="badge ${s.type==='player'?'b-blue':s.type==='captain'?'b-gold':'b-purple'}">${s.type}</span></td>
         <td class="muted">${s.from||'—'}</td><td>${s.to||'—'}</td><td class="muted small">${s.match||'—'}</td>
         <td>${s.isFree?'<span class="badge b-green">Free</span>':'<span class="badge b-gray">Paid</span>'}</td>
         <td>${s.isWrong?'<span class="badge b-red">WRONG −300</span>':'<span class="badge b-green">Valid</span>'}</td>
-        ${isAdmin?`<td><button class="btn btn-danger btn-xs" onclick="reverseSwap('${t.id}',${(sw.history.length-1-idx)})">↩</button></td>`:'<td></td>'}
-      </tr>`).reverse().join('')}</tbody>
-    </table></div>`:'<p class="muted small">No swaps logged</p>'}
+        ${isAdmin?`<td><button class="btn btn-danger btn-xs" onclick="reverseSwap('${t.id}',${sw.history.length-1-idx})">↩</button></td>`:'<td></td>'}
+      </tr>`).reverse().join('')}</tbody></table></div>`:'<p class="muted small">No swaps logged</p>'}
   </div>`;
 }
 
 function showSwapModal(tid){
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   const todayStr=new Date().toISOString().split('T')[0];
-  const freeAvailable=canUseFreeSwap(t, todayStr);
+  const freeAvailable=canUseFreeSwap(t,todayStr);
   const todayAllowed=getDailyFreeSwapsAllowed(todayStr);
   const seasonStarted=hasMatchStarted();
   const mySquad=(S.squad||[]).filter(p=>p.ownerTeam===t.name);
   const available=mySquad.filter(sq=>!t.players.some(p=>p.name===sq.name));
   const playerSwapCount={};
-  for(const h of (t.swaps?.history||[])){
-    if(h.type==='player' && h.from) playerSwapCount[h.from]=(playerSwapCount[h.from]||0)+1;
-  }
-
+  for(const h of(t.swaps?.history||[])){if(h.type==='player'&&h.from)playerSwapCount[h.from]=(playerSwapCount[h.from]||0)+1;}
   addModal('swap-modal',`<div class="mhead"><h2>Log Swap — ${t.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('swap-modal')">✕</button></div>
   ${todayAllowed===0?'<div class="alert al-warn mb12">No matches today — free swap not available.</div>':''}
-  ${freeAvailable?`<div class="alert al-success mb12">✅ Free swap available today (${todayAllowed} game${todayAllowed>1?'s':''} today)</div>`:'<div class="alert al-info mb12">No free swaps left today — uses a season swap.</div>'}
-  <div class="fg"><label>Swap Type</label>
-    <select id="sw-type" onchange="updateSwapForm('${tid}')">
-      <option value="player">Player Swap</option>
-      ${seasonStarted?`<option value="captain">Captain Swap (uses season C swap)</option><option value="vc">Vice-Captain Swap (uses season VC swap)</option>`:''}
-    </select>
-  </div>
-  <div id="sw-player-fields">
-    <div class="fr">
-      <div class="fg">
-        <label>Player Out (from Playing XI)</label>
-        <select id="sw-from">
-          ${t.players.map(p=>`<option value="${p.name}" data-role="${p.role}">${p.name} (${p.role||'?'}) — ${playerSwapCount[p.name]||0} prev swaps</option>`).join('')}
-        </select>
-      </div>
-      <div class="fg">
-        <label>Player In (from Squad — not in XI)</label>
-        <select id="sw-to-select">
-          <option value="">— Select from squad —</option>
-          ${available.map(p=>`<option value="${p.name}" data-role="${p.role}">${p.name} (${p.role||'?'}) · ${p.iplTeam||'?'}</option>`).join('')}
-        </select>
-        ${available.length===0?'<p class="muted small mt4">All squad players are already in XI.</p>':''}
-      </div>
-    </div>
-  </div>
-  <div id="sw-role-fields" style="display:none">
-    <div class="fg"><label>New Captain / VC (from Playing XI)</label>
-      <select id="sw-to-role">
-        <option value="">— Select player —</option>
-        ${t.players.map(p=>`<option value="${p.name}">${p.name}</option>`).join('')}
-      </select>
-    </div>
-  </div>
-  <div class="fg"><label>For Match</label>
-    <select id="sw-match"><option value="">Next match</option>${S.matches.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}</select></div>
-  <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sw-wrong" style="width:auto" /> Mark as WRONG swap (−300 pts penalty)</label></div>
+  ${freeAvailable?'<div class="alert al-success mb12">✅ Free swap available today ('+todayAllowed+' game'+(todayAllowed>1?'s':'')+' today)</div>':'<div class="alert al-info mb12">No free swaps left today — uses a season swap.</div>'}
+  <div class="fg"><label>Swap Type</label><select id="sw-type" onchange="updateSwapForm('${tid}')"><option value="player">Player Swap</option>${seasonStarted?'<option value="captain">Captain Swap</option><option value="vc">Vice-Captain Swap</option>':''}</select></div>
+  <div id="sw-player-fields"><div class="fr">
+    <div class="fg"><label>Player Out (from Playing XI)</label><select id="sw-from">${t.players.map(p=>`<option value="${p.name}">${p.name} (${p.role||'?'}) — ${playerSwapCount[p.name]||0} prev swaps</option>`).join('')}</select></div>
+    <div class="fg"><label>Player In (from Squad)</label><select id="sw-to-select"><option value="">— Select —</option>${available.map(p=>`<option value="${p.name}">${p.name} (${p.role||'?'}) · ${p.iplTeam||'?'}</option>`).join('')}</select>${available.length===0?'<p class="muted small mt4">All squad players are in XI.</p>':''}</div></div></div>
+  <div id="sw-role-fields" style="display:none"><div class="fg"><label>New Captain / VC</label><select id="sw-to-role"><option value="">— Select —</option>${t.players.map(p=>`<option value="${p.name}">${p.name}</option>`).join('')}</select></div></div>
+  <div class="fg"><label>For Match</label><select id="sw-match"><option value="">Next match</option>${S.matches.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}</select></div>
+  <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sw-wrong" style="width:auto" /> Mark as WRONG swap (−300 pts)</label></div>
   <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sw-free" style="width:auto" ${freeAvailable?'checked':''} ${!freeAvailable?'disabled':''}/> Use free daily swap ${!freeAvailable?'(none left)':''}</label></div>
   <button class="btn btn-primary" onclick="logSwap('${tid}')">Log Swap</button>`);
 }
@@ -1552,157 +1398,108 @@ async function logSwap(tid){
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   const type=document.getElementById('sw-type')?.value;
   const from=document.getElementById('sw-from')?.value;
-  const to=(type==='player'
-    ? document.getElementById('sw-to-select')?.value
-    : document.getElementById('sw-to-role')?.value);
+  const to=(type==='player'?document.getElementById('sw-to-select')?.value:document.getElementById('sw-to-role')?.value);
   const mid=document.getElementById('sw-match')?.value;
   const isWrong=document.getElementById('sw-wrong')?.checked;
   const wantFree=document.getElementById('sw-free')?.checked;
   if(!to){alert(type==='player'?'Select a player to swap in':'Select the new captain/VC');return;}
   if(!t.swaps)t.swaps={player:0,captain:0,vc:0,history:[]};
-
   const todayStr=new Date().toISOString().split('T')[0];
   const matchDate=S.matches.find(m=>m.id===mid)?.date||todayStr;
-
-  if(type==='player' && !isWrong){
+  if(type==='player'&&!isWrong){
     const outPlayer=t.players.find(p=>p.name===from);
     const inPlayer=(S.squad||[]).find(p=>p.name===to&&p.ownerTeam===t.name);
     const newRole=inPlayer?.role||outPlayer?.role;
-    if(!newRole){alert('Could not determine role for incoming player.');return;}
+    if(!newRole){alert('Could not determine role.');return;}
     const tempPlayers=t.players.filter(p=>p.name!==from).concat([{name:to,role:newRole}]);
     const errs=validateFormation(tempPlayers);
-    if(errs.length){
-      const proceed=confirm(`⚠️ Formation warning:\n${errs.join('\n')}\n\nThis will be marked as a WRONG swap (−300 pts). Proceed?`);
-      if(!proceed)return;
-      document.getElementById('sw-wrong').checked=true;
-    }
+    if(errs.length){const proceed=confirm('⚠️ Formation warning:\n'+errs.join('\n')+'\n\nThis will be marked as a WRONG swap (−300 pts). Proceed?');if(!proceed)return;document.getElementById('sw-wrong').checked=true;}
   }
-
   const isWrongFinal=document.getElementById('sw-wrong')?.checked;
-
   let isFree=false;
-  if(!isWrongFinal && type==='player' && wantFree){
-    if(canUseFreeSwap(t,matchDate)) isFree=true;
-    else{alert(`No free swaps left for ${matchDate}.`);return;}
-  }
-
+  if(!isWrongFinal&&type==='player'&&wantFree){if(canUseFreeSwap(t,matchDate))isFree=true;else{alert('No free swaps left for '+matchDate+'.');return;}}
   const limits={player:15,captain:5,vc:5};
-  if(!isWrongFinal && !isFree){
-    if((t.swaps[type]||0)>=limits[type]){alert(`No ${type} swaps remaining this season!`);return;}
-    t.swaps[type]=(t.swaps[type]||0)+1;
-  }
-
+  if(!isWrongFinal&&!isFree){if((t.swaps[type]||0)>=limits[type]){alert('No '+type+' swaps remaining!');return;}t.swaps[type]=(t.swaps[type]||0)+1;}
   const mname=S.matches.find(m=>m.id===mid)?.name||'Next match';
   const outPlayer=t.players.find(p=>p.name===from);
   const inPlayer=(S.squad||[]).find(p=>p.name===to&&p.ownerTeam===t.name);
   const newRole=inPlayer?.role||outPlayer?.role||'';
-
   t.swaps.history.push({type,from,to,match:mname,matchId:mid,matchDate,isFree,isWrong:isWrongFinal,date:new Date().toISOString(),newRole});
-
   if(!isWrongFinal){
-    if(type==='player'){
-      t.players=t.players.filter(p=>p.name!==from);
-      t.players.push({id:gid(),name:to,iplTeam:inPlayer?.iplTeam||outPlayer?.iplTeam||'',role:newRole});
-      if(t.currentCaptain===from)t.currentCaptain=to;
-      if(t.currentVc===from)t.currentVc=to;
-    } else if(type==='captain'){t.currentCaptain=to;}
+    if(type==='player'){t.players=t.players.filter(p=>p.name!==from);t.players.push({id:gid(),name:to,iplTeam:inPlayer?.iplTeam||outPlayer?.iplTeam||'',role:newRole});if(t.currentCaptain===from)t.currentCaptain=to;if(t.currentVc===from)t.currentVc=to;}
+    else if(type==='captain'){t.currentCaptain=to;}
     else if(type==='vc'){t.currentVc=to;}
   }
   await saveS();closeModal('swap-modal');render();
 }
 
+// ═══════════════════════════════════════════
+// VIEW: PREDICTIONS
+// ═══════════════════════════════════════════
 function vPredictions(){
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todayMatches = S.matches.filter(m => !m.completed && m.date === todayStr);
-  const futureMatches = S.matches.filter(m => !m.completed && m.date && m.date > todayStr);
-  const pastMatches = [...S.matches].filter(m => m.completed).reverse();
-
+  const todayStr=new Date().toISOString().split('T')[0];
+  const todayMatches=S.matches.filter(m=>!m.completed&&m.date===todayStr);
+  const futureMatches=S.matches.filter(m=>!m.completed&&m.date&&m.date>todayStr);
+  const pastMatches=[...S.matches].filter(m=>m.completed).reverse();
   return`<div class="fb mb16"><h1>🎯 Predictions</h1></div>
   <div class="alert al-info mb16">Predictions open on match day (before result). Correct = <span class="pos">+30</span> | Wrong = <span class="neg">−20</span>.</div>
-
-  ${todayMatches.length ? `
-    <h2 style="margin-bottom:12px">📅 Today — ${todayStr}${todayMatches.length>1?` (${todayMatches.length} games)`:''}</h2>
-    ${todayMatches.map(m=>predCardInput(m, true)).join('')}
-  ` : `<div class="alert al-warn mb16">No matches scheduled for today. ${futureMatches.length?`Next: <strong>${futureMatches[0].name}</strong> on ${futureMatches[0].date}`:'No upcoming matches yet.'}</div>`}
-
-  ${futureMatches.length ? `
-    <div class="sep"></div>
-    <p class="muted small mt12 mb12">🔒 ${futureMatches.length} upcoming match${futureMatches.length>1?'es':''} — predictions will open on match day:</p>
-    ${futureMatches.map(m=>`<div class="card mb8" style="padding:10px 14px">
-      <div class="fb"><span style="font-weight:600">${m.name}</span><span class="muted small">${m.date}</span></div>
-    </div>`).join('')}
-  ` : ''}
-
-  ${pastMatches.length ? `
-    <div class="sep"></div>
-    <h2 style="margin:16px 0 12px">📋 Past Matches — Results</h2>
-    ${pastMatches.map(m=>predCardInput(m, false)).join('')}
-  ` : ''}`;
+  ${todayMatches.length?`<h2 style="margin-bottom:12px">📅 Today — ${todayStr}${todayMatches.length>1?' ('+todayMatches.length+' games)':''}</h2>${todayMatches.map(m=>predCardInput(m,true)).join('')}`
+    :`<div class="alert al-warn mb16">No matches scheduled for today. ${futureMatches.length?'Next: <strong>'+futureMatches[0].name+'</strong> on '+futureMatches[0].date:'No upcoming matches yet.'}</div>`}
+  ${futureMatches.length?`<div class="sep"></div><p class="muted small mt12 mb12">🔒 ${futureMatches.length} upcoming — predictions open on match day:</p>${futureMatches.map(m=>`<div class="card mb8" style="padding:10px 14px"><div class="fb"><span style="font-weight:600">${m.name}</span><span class="muted small">${m.date}</span></div></div>`).join('')}`:''}
+  ${pastMatches.length?`<div class="sep"></div><h2 style="margin:16px 0 12px">📋 Past Matches — Results</h2>${pastMatches.map(m=>predCardInput(m,false)).join('')}`:''}`;
 }
 
-function predCardInput(m, canInput){
-  const isToday = canInput;
-  return`<div class="card mb12">
-    <div class="fb mb12">
-      <div class="fc g8">
-        <span style="font-weight:700">${m.name}</span>
-        ${m.type==='final'?'<span class="badge b-gold">Final</span>':m.type==='semifinal'?'<span class="badge b-purple">SF</span>':'<span class="badge b-blue">League</span>'}
-      </div>
-      <div class="fc g8">
-        <span class="muted small">${m.date||''}</span>
-        ${m.winner?`<span class="badge b-green">✓ ${m.winner}</span>`:'<span class="badge b-orange">TBD</span>'}
-      </div>
-    </div>
-    <div class="tscroll"><table>
-      <thead><tr><th>Fantasy Team</th><th>Prediction</th><th>Result</th><th>Pts</th>${isAdmin?'<th></th>':''}</tr></thead>
-      <tbody>${S.teams.map(t=>{
-        const p=t.predictions?.[m.id];
-        const correct=p&&m.winner?p.prediction?.toLowerCase()===m.winner?.toLowerCase():null;
-        const canEdit = isToday && !m.winner;
-        return`<tr>
-          <td style="font-weight:600">${t.name}</td>
-          <td>${p
-            ? `<span class="badge b-blue">${p.prediction}</span>${canEdit&&isAdmin?` <button class="btn btn-ghost btn-xs" onclick="clearPred('${t.id}','${m.id}')">✕</button>`:''}`
-            : (canEdit && isAdmin
-                ? `<div class="fc g6"><input id="pi-${t.id}-${m.id}" placeholder="e.g. MI" style="width:80px" /><button class="btn btn-secondary btn-xs" onclick="savePred('${t.id}','${m.id}')">Save</button></div>`
-                : `<span class="muted small">—</span>`)
-          }</td>
-          <td>${m.winner?`<span class="badge ${correct?'b-green':'b-red'}">${m.winner}</span>`:'—'}</td>
-          <td class="${correct===true?'pos':correct===false?'neg':''}" style="font-weight:600">
-            ${correct===true?'+30':correct===false?'−20':'—'}
-          </td>
-          ${isAdmin?`<td>${p?`<button class="btn btn-danger btn-xs" onclick="reversePred('${t.id}','${m.id}')">↩</button>`:'—'}</td>`:''}
-        </tr>`;
-      }).join('')}</tbody>
-    </table></div>
-  </div>`;
+function predCardInput(m,canInput){
+  const isToday=canInput;
+  return`<div class="card mb12"><div class="fb mb12">
+    <div class="fc g8"><span style="font-weight:700">${m.name}</span>${m.type==='final'?'<span class="badge b-gold">Final</span>':m.type==='semifinal'?'<span class="badge b-purple">SF</span>':'<span class="badge b-blue">League</span>'}</div>
+    <div class="fc g8"><span class="muted small">${m.date||''}</span>${m.winner?`<span class="badge b-green">✓ ${m.winner}</span>`:'<span class="badge b-orange">TBD</span>'}</div></div>
+    <div class="tscroll"><table><thead><tr><th>Fantasy Team</th><th>Prediction</th><th>Result</th><th>Pts</th>${isAdmin?'<th></th>':''}</tr></thead><tbody>
+    ${S.teams.map(t=>{
+      const p=t.predictions?.[m.id];
+      const correct=p&&m.winner?p.prediction?.toLowerCase()===m.winner?.toLowerCase():null;
+      const canEdit=isToday&&!m.winner;
+      return`<tr><td style="font-weight:600">${t.name}</td>
+        <td>${p?`<span class="badge b-blue">${p.prediction}</span>${canEdit&&isAdmin?` <button class="btn btn-ghost btn-xs" onclick="clearPred('${t.id}','${m.id}')">✕</button>`:''}`
+          :(canEdit&&isAdmin?`<div class="fc g6"><input id="pi-${t.id}-${m.id}" placeholder="e.g. MI" style="width:80px" /><button class="btn btn-secondary btn-xs" onclick="savePred('${t.id}','${m.id}')">Save</button></div>`:'<span class="muted small">—</span>')}</td>
+        <td>${m.winner?`<span class="badge ${correct?'b-green':'b-red'}">${m.winner}</span>`:'—'}</td>
+        <td class="${correct===true?'pos':correct===false?'neg':''}" style="font-weight:600">${correct===true?'+30':correct===false?'−20':'—'}</td>
+        ${isAdmin?`<td>${p?`<button class="btn btn-danger btn-xs" onclick="reversePred('${t.id}','${m.id}')">↩</button>`:'—'}</td>`:''}</tr>`;
+    }).join('')}</tbody></table></div></div>`;
 }
 
-async function clearPred(tid, mid){
-  if(!checkAdmin('clear a prediction')) return;
-  const t=S.teams.find(x=>x.id===tid);if(!t)return;
-  if(t.predictions) delete t.predictions[mid];
-  await saveS(); render();
-}
+async function clearPred(tid,mid){if(!checkAdmin('clear a prediction'))return;const t=S.teams.find(x=>x.id===tid);if(!t)return;if(t.predictions)delete t.predictions[mid];await saveS();render();}
 
 async function savePred(tid,mid){
   if(!checkAdmin('save a prediction')) return;
-  const inp=document.getElementById(`pi-${tid}-${mid}`);
+  const inp=document.getElementById('pi-'+tid+'-'+mid);
   const pred=inp?.value.trim();
   if(!pred){alert('Enter a team name');return;}
   const m=S.matches.find(x=>x.id===mid);
   const todayStr=new Date().toISOString().split('T')[0];
-  if(m?.date && m.date !== todayStr){alert('Predictions can only be saved for today\'s matches.');return;}
-  if(m?.completed){alert('Match already completed — prediction cannot be saved.');return;}
+  if(m?.date&&m.date!==todayStr){alert('Predictions can only be saved for today\'s matches.');return;}
+  if(m?.completed){alert('Match already completed.');return;}
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   if(!t.predictions)t.predictions={};
   t.predictions[mid]={prediction:pred,savedAt:new Date().toISOString()};
   await saveS();render();
 }
 
+// ═══════════════════════════════════════════
+// VIEW: AWARDS — with Captain/VC multiplier dropdown
+// ═══════════════════════════════════════════
 function vAwards(){
   const a=S.awards;
+  if(!a.multipliers) a.multipliers={};
   const tOpts=(key,src)=>S.teams.map(t=>`<option value="${t.id}" ${src===t.id?'selected':''}>${t.name}</option>`).join('');
+  const roleOpts=(key)=>{
+    const cur=a.multipliers[key]||'none';
+    return`<select id="am-${key}" style="width:140px">
+      <option value="none" ${cur==='none'?'selected':''}>None (×1)</option>
+      <option value="captain" ${cur==='captain'?'selected':''}>Captain (×2)</option>
+      <option value="vc" ${cur==='vc'?'selected':''}>VC (×1.5)</option>
+    </select>`;
+  };
   const arows=[
     {k:'orangeCap',l:'🟠 Orange Cap',pts:200,src:a.orangeCap},
     {k:'secondRuns',l:'🟠 2nd Highest Runs',pts:150,src:a.secondRuns},
@@ -1713,113 +1510,121 @@ function vAwards(){
     {k:'mostFours',l:'🔷 Most Fours',pts:100,src:a.mostFours},
   ];
   const finals=[
-    {k:'first',l:'🥇 1st Place',pts:300,src:a.standings?.first},
-    {k:'second',l:'🥈 2nd Place',pts:250,src:a.standings?.second},
-    {k:'third',l:'🥉 3rd Place',pts:200,src:a.standings?.third},
-    {k:'fourth',l:'4th Place',pts:150,src:a.standings?.fourth},
+    {k:'first',l:'🥇 1st Place',pts:300,src:a.standings?.first,mk:'st_first'},
+    {k:'second',l:'🥈 2nd Place',pts:250,src:a.standings?.second,mk:'st_second'},
+    {k:'third',l:'🥉 3rd Place',pts:200,src:a.standings?.third,mk:'st_third'},
+    {k:'fourth',l:'4th Place',pts:150,src:a.standings?.fourth,mk:'st_fourth'},
   ];
   return`<div class="fb mb16"><h1>Tournament Awards</h1><button class="btn btn-primary" onclick="saveAwards()">Save Awards</button></div>
-  <div class="alert al-warn mb16">End-of-tournament awards. Points auto-added to leaderboard once assigned.</div>
+  <div class="alert al-warn mb16">End-of-tournament awards. Points auto-added to leaderboard once assigned. Use Captain/VC to multiply award points.</div>
   <div class="card mb12"><h2>Season Awards</h2>
-    ${arows.map(r=>`<div class="fb" style="padding:10px 0;border-bottom:1px solid var(--border)">
-      <div class="fc g8"><span style="font-weight:600">${r.l}</span><span class="badge b-orange">+${r.pts}</span></div>
-      <select id="aw-${r.k}" style="width:180px"><option value="">— None —</option>${tOpts(r.k,r.src)}</select>
-    </div>`).join('')}
+    <div class="tscroll"><table>
+      <thead><tr><th>Award</th><th>Base Pts</th><th>Team</th><th>Captain / VC</th><th>Final Pts</th></tr></thead>
+      <tbody>
+        ${arows.map(r=>{
+          const mult=a.multipliers[r.k]||'none';
+          const factor=mult==='captain'?2:mult==='vc'?1.5:1;
+          return`<tr>
+            <td style="font-weight:600">${r.l}</td>
+            <td><span class="badge b-orange">+${r.pts}</span></td>
+            <td><select id="aw-${r.k}" style="width:180px"><option value="">— None —</option>${tOpts(r.k,r.src)}</select></td>
+            <td>${roleOpts(r.k)}</td>
+            <td style="font-weight:700;color:var(--orange)">${r.src?Math.round(r.pts*factor):'—'}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>
   </div>
   <div class="card"><h2>Final Standings</h2>
-    ${finals.map(r=>`<div class="fb" style="padding:10px 0;border-bottom:1px solid var(--border)">
-      <div class="fc g8"><span style="font-weight:600">${r.l}</span><span class="badge b-gold">+${r.pts}</span></div>
-      <select id="st-${r.k}" style="width:180px"><option value="">— None —</option>${tOpts(r.k,r.src)}</select>
-    </div>`).join('')}
+    <div class="tscroll"><table>
+      <thead><tr><th>Position</th><th>Base Pts</th><th>Team</th><th>Captain / VC</th><th>Final Pts</th></tr></thead>
+      <tbody>
+        ${finals.map(r=>{
+          const mult=a.multipliers[r.mk]||'none';
+          const factor=mult==='captain'?2:mult==='vc'?1.5:1;
+          return`<tr>
+            <td style="font-weight:600">${r.l}</td>
+            <td><span class="badge b-gold">+${r.pts}</span></td>
+            <td><select id="st-${r.k}" style="width:180px"><option value="">— None —</option>${tOpts(r.k,r.src)}</select></td>
+            <td>${roleOpts(r.mk)}</td>
+            <td style="font-weight:700;color:var(--gold)">${r.src?Math.round(r.pts*factor):'—'}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>
   </div>`;
 }
 
 async function saveAwards(){
   if(!checkAdmin('save awards')) return;
+  if(!S.awards.multipliers) S.awards.multipliers={};
+  // Season awards
   ['orangeCap','secondRuns','purpleCap','secondWickets','manOfSeries','mostSixes','mostFours'].forEach(k=>{
-    S.awards[k]=document.getElementById(`aw-${k}`)?.value||null;
+    S.awards[k]=document.getElementById('aw-'+k)?.value||null;
+    S.awards.multipliers[k]=document.getElementById('am-'+k)?.value||'none';
   });
-  if(!S.awards.standings)S.awards.standings={};
+  // Final standings
+  if(!S.awards.standings) S.awards.standings={};
   ['first','second','third','fourth'].forEach(k=>{
-    S.awards.standings[k]=document.getElementById(`st-${k}`)?.value||null;
+    S.awards.standings[k]=document.getElementById('st-'+k)?.value||null;
+    S.awards.multipliers['st_'+k]=document.getElementById('am-st_'+k)?.value||'none';
   });
   await saveS();render();
-  alert('✅ Awards saved! Leaderboard updated.');
+  alert('✅ Awards saved! Leaderboard updated with C/VC multipliers.');
 }
 
-function showEditScore(matchId, teamId){
+// ═══════════════════════════════════════════
+// ADMIN EDIT TOOLS
+// ═══════════════════════════════════════════
+function showEditScore(matchId,teamId){
   if(!checkAdmin('edit scores')) return;
-  const m=S.matches.find(x=>x.id===matchId);
-  const t=S.teams.find(x=>x.id===teamId);
+  const m=S.matches.find(x=>x.id===matchId);const t=S.teams.find(x=>x.id===teamId);
   if(!m||!t) return;
-  const scores=m.teamScores?.[teamId];
-  if(!scores) return;
-
-  addModal('edit-score-modal',`
-    <div class="mhead"><h2>✏️ Edit Scores — ${t.name} · ${m.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('edit-score-modal')">✕</button></div>
+  const scores=m.teamScores?.[teamId];if(!scores) return;
+  addModal('edit-score-modal',`<div class="mhead"><h2>✏️ Edit Scores — ${t.name} · ${m.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('edit-score-modal')">✕</button></div>
     <div class="alert al-warn mb12 small">Changes override AI-calculated values. Use to fix parsing errors.</div>
-    <div class="fg"><label>Match Total Override (leave blank to keep calculated)</label>
-      <input id="es-total" placeholder="${scores.total}" value="${scores.total}" type="number"/></div>
-    <div class="sep"></div>
-    <h3>Player Points</h3>
-    ${(scores.players||[]).map(p=>`
-      <div class="fr mb8" style="align-items:center">
-        <div style="flex:1;font-size:13px">${p.name}${p.isC?' (C)':''}${p.isVC?' (VC)':''}</div>
-        <input id="ep-${p.name.replace(/\s/g,'_')}" type="number" value="${p.pts}" style="width:90px" />
-      </div>`).join('')}
-    <div class="mt12 fc g8">
-      <button class="btn btn-primary" onclick="saveEditedScores('${matchId}','${teamId}')">Save Changes</button>
-      <button class="btn btn-ghost" onclick="closeModal('edit-score-modal')">Cancel</button>
-    </div>`);
+    <div class="fg"><label>Match Total Override</label><input id="es-total" placeholder="${scores.total}" value="${scores.total}" type="number"/></div>
+    <div class="sep"></div><h3>Player Points</h3>
+    ${(scores.players||[]).map(p=>`<div class="fr mb8" style="align-items:center"><div style="flex:1;font-size:13px">${p.name}${p.isC?' (C)':''}${p.isVC?' (VC)':''}</div>
+      <input id="ep-${p.name.replace(/\s/g,'_')}" type="number" value="${p.pts}" style="width:90px" /></div>`).join('')}
+    <div class="mt12 fc g8"><button class="btn btn-primary" onclick="saveEditedScores('${matchId}','${teamId}')">Save Changes</button><button class="btn btn-ghost" onclick="closeModal('edit-score-modal')">Cancel</button></div>`);
 }
 
-async function saveEditedScores(matchId, teamId){
-  const m=S.matches.find(x=>x.id===matchId);
-  const scores=m?.teamScores?.[teamId];
-  if(!scores) return;
-  for(const p of (scores.players||[])){
-    const inp=document.getElementById(`ep-${p.name.replace(/\s/g,'_')}`);
-    if(inp) p.pts=parseInt(inp.value)||p.pts;
-  }
+async function saveEditedScores(matchId,teamId){
+  const m=S.matches.find(x=>x.id===matchId);const scores=m?.teamScores?.[teamId];if(!scores) return;
+  for(const p of(scores.players||[])){const inp=document.getElementById('ep-'+p.name.replace(/\s/g,'_'));if(inp)p.pts=parseInt(inp.value)||p.pts;}
   const totalInp=document.getElementById('es-total');
   const overrideTotal=totalInp?parseInt(totalInp.value):NaN;
-  if(!isNaN(overrideTotal)){
-    scores.total=overrideTotal;
-  } else {
-    scores.total=(scores.players||[]).reduce((a,p)=>a+p.pts,0);
-  }
-  await saveS();closeModal('edit-score-modal');render();
-  alert('✅ Scores updated.');
+  if(!isNaN(overrideTotal)){scores.total=overrideTotal;}else{scores.total=(scores.players||[]).reduce((a,p)=>a+p.pts,0);}
+  await saveS();closeModal('edit-score-modal');render();alert('✅ Scores updated.');
 }
 
-async function reverseSwap(tid, swapIdx){
+async function reverseSwap(tid,swapIdx){
   if(!checkAdmin('reverse a swap')) return;
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   const h=t.swaps?.history;if(!h||swapIdx<0||swapIdx>=h.length)return;
   const sw=h[swapIdx];
-  if(!confirm(`Reverse swap: ${sw.from||sw.type} → ${sw.to}?\nThis will undo the roster change and refund the swap.`)) return;
+  if(!confirm('Reverse swap: '+(sw.from||sw.type)+' → '+sw.to+'?\nThis will undo the roster change and refund the swap.')) return;
   if(!sw.isWrong){
-    if(sw.type==='player'){
-      t.players=t.players.filter(p=>p.name!==sw.to);
-      if(sw.from) t.players.push({id:gid(),name:sw.from,iplTeam:'',role:sw.outRole||''});
-    } else if(sw.type==='captain'){t.currentCaptain=sw.from||t.currentCaptain;}
+    if(sw.type==='player'){t.players=t.players.filter(p=>p.name!==sw.to);if(sw.from)t.players.push({id:gid(),name:sw.from,iplTeam:'',role:sw.outRole||''});}
+    else if(sw.type==='captain'){t.currentCaptain=sw.from||t.currentCaptain;}
     else if(sw.type==='vc'){t.currentVc=sw.from||t.currentVc;}
-    if(!sw.isFree && t.swaps[sw.type]>0) t.swaps[sw.type]--;
+    if(!sw.isFree&&t.swaps[sw.type]>0)t.swaps[sw.type]--;
   }
-  h.splice(swapIdx,1);
-  await saveS();render();
-  alert('✅ Swap reversed.');
+  h.splice(swapIdx,1);await saveS();render();alert('✅ Swap reversed.');
 }
 
-async function reversePred(tid, mid){
+async function reversePred(tid,mid){
   if(!checkAdmin('reverse a prediction')) return;
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   if(!t.predictions?.[mid]){alert('No prediction found.');return;}
   if(!confirm('Clear this prediction?')) return;
-  delete t.predictions[mid];
-  await saveS();render();
+  delete t.predictions[mid];await saveS();render();
 }
 
+// ═══════════════════════════════════════════
+// NAV INIT
+// ═══════════════════════════════════════════
 document.getElementById('nav').addEventListener('click',e=>{
   const btn=e.target.closest('[data-v]');if(btn)nav(btn.dataset.v);
 });
