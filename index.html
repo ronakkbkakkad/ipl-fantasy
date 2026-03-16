@@ -1027,6 +1027,12 @@ async function doParseAI(){
     });
     const data=await res.json();
     const raw=data.content?.[0]?.text||'';
+    // Show Gemini/Worker errors clearly
+    if(raw.startsWith('GEMINI_ERROR:') || raw.startsWith('WORKER_ERROR:') || raw.startsWith('JSON_PARSE_ERROR:') || raw.startsWith('NO_TEXT_FOUND:')){
+      if(btn)btn.innerHTML='🤖 Parse with AI';
+      alert('API Error:\n\n'+raw);
+      return;
+    }
     const clean=raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
     const parsed=JSON.parse(clean);
     pendingSC={...parsed,_matchName:mn,_matchType:mtype,_matchDate:mdate};
