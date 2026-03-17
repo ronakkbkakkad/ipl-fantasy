@@ -741,18 +741,40 @@ function vAddMenu(){
 }
 
 function vAddCreate(){
+  const IPL=['MI','CSK','RCB','KKR','PBKS','RR','SRH','DC','GT','LSG'];
+  const iplOpts=IPL.map(t=>`<option value="${t}">${t}</option>`).join('');
   return`<div class="fb mb16"><h1>Create Upcoming Match</h1><button class="btn btn-secondary btn-sm" onclick="addView='menu';render()">← Back</button></div>
   <div class="card">
     <div class="alert al-info mb16">Once created, all teams can submit predictions. Upload the scorecard after the game ends.</div>
+    <div class="fr mb12">
+      <div class="fg"><label>Team 1</label>
+        <select id="mn-t1" onchange="updateMatchName()"><option value="">— Select —</option>${iplOpts}</select>
+      </div>
+      <div class="fg"><label>Team 2</label>
+        <select id="mn-t2" onchange="updateMatchName()"><option value="">— Select —</option>${iplOpts}</select>
+      </div>
+    </div>
+    <div class="fg"><label>Match Name <span class="muted small">(auto-filled, editable)</span></label>
+      <input id="mn" placeholder="MI vs CSK — Match 1" />
+    </div>
     <div class="fr">
-      <div class="fg"><label>Match Name</label><input id="mn" placeholder="MI vs CSK — Match 12" /></div>
       <div class="fg"><label>Date</label><input type="date" id="md" value="${new Date().toISOString().split('T')[0]}" /></div>
+      <div class="fg"><label>Match Type</label>
+        <select id="mt"><option value="league">League Stage</option><option value="semifinal">Semi-Final</option><option value="final">Final</option></select>
+      </div>
     </div>
-    <div class="fg"><label>Match Type</label>
-      <select id="mt"><option value="league">League Stage</option><option value="semifinal">Semi-Final</option><option value="final">Final</option></select>
-    </div>
-    <button class="btn btn-primary" onclick="createUpcomingMatch()">📅 Create Match & Open Predictions</button>
+    <button class="btn btn-primary mt8" onclick="createUpcomingMatch()">📅 Create Match & Open Predictions</button>
   </div>`;
+}
+
+function updateMatchName(){
+  const t1=document.getElementById('mn-t1')?.value;
+  const t2=document.getElementById('mn-t2')?.value;
+  const nm=document.getElementById('mn');
+  if(nm && t1 && t2){
+    const num=S.matches.filter(m=>!m.completed).length+S.matches.filter(m=>m.completed).length+1;
+    nm.value=`${t1} vs ${t2} — Match ${num}`;
+  }
 }
 
 async function createUpcomingMatch(){
@@ -768,33 +790,82 @@ async function createUpcomingMatch(){
   alert(`✅ "${name}" created! Predictions are now open.`);
 }
 
-let scTab = 'text'; // 'text' | 'ai'
+let scTab = 'text'; // 'text' | 'manual' | 'ai'
 
 function vAddScorecard(){
   const m=S.matches.find(x=>x.id===scorecardMatchId);
   if(!m) return`<div class="empty"><p>Match not found.</p></div>`;
+  const IPL=['MI','CSK','RCB','KKR','PBKS','RR','SRH','DC','GT','LSG'];
+  const iplOpts=IPL.map(t=>`<option value="${t}">${t}</option>`).join('');
+
   return`<div class="fb mb16"><h1>Upload Scorecard</h1><button class="btn btn-secondary btn-sm" onclick="addView='menu';render()">← Back</button></div>
   <div class="card mb12">
     <div class="alert al-success mb8">📅 <strong>${m.name}</strong> · ${m.date||''}</div>
     <div class="stabs mt8">
-      <button class="stab ${scTab==='text'?'active':''}" onclick="scTab='text';render()">📋 Paste Cricbuzz Text</button>
-      <button class="stab ${scTab==='ai'?'active':''}" onclick="scTab='ai';render()">🤖 AI Parse (screenshots)</button>
+      <button class="stab ${scTab==='text'?'active':''}" onclick="scTab='text';render()">📋 Paste Text</button>
+      <button class="stab ${scTab==='manual'?'active':''}" onclick="scTab='manual';render()">✏️ Manual Entry</button>
+      <button class="stab ${scTab==='ai'?'active':''}" onclick="scTab='ai';render()">🤖 AI Parse</button>
     </div>
   </div>
 
   ${scTab==='text' ? `
   <div class="card">
-    <div class="alert al-info mb12 small">📋 Copy scorecard from Cricbuzz app/website and paste below. Works with the exact format Cricbuzz uses.</div>
-    <div class="alert al-warn mb12 small">⚠️ Paste BOTH innings. Super over stats NOT counted.</div>
+    <div class="alert al-info mb12 small">📋 Supports Cricbuzz, ESPNcricinfo, and Cricinfo tab-separated formats. Paste both innings.</div>
     <div class="fg"><label>Paste Full Scorecard (both innings)</label>
-      <textarea id="sct" style="min-height:200px" placeholder="Supports both Cricbuzz and ESPNcricinfo formats — paste the full scorecard text here (both innings)..."></textarea>
+      <textarea id="sct" style="min-height:200px" placeholder="Paste scorecard from Cricbuzz or ESPNcricinfo — both innings..."></textarea>
     </div>
     <div class="fr">
-      <div class="fg"><label>Match Winner</label><input id="tp-winner" placeholder="e.g. KKR" /></div>
+      <div class="fg"><label>Match Winner</label>
+        <select id="tp-winner"><option value="">— Select Winner —</option>${iplOpts}</select>
+      </div>
       <div class="fg"><label>Man of the Match</label><input id="tp-mom" placeholder="e.g. Narine" /></div>
     </div>
     <button class="btn btn-primary mt8" onclick="doParseText()">📋 Parse & Review →</button>
   </div>
+
+  ` : scTab==='manual' ? `
+  <div class="card mb12">
+    <div class="alert al-info mb12 small">Enter stats directly. Players are selected from squad rosters.</div>
+    <div class="fr mb12">
+      <div class="fg"><label>Match Winner</label>
+        <select id="me-winner"><option value="">— Select Winner —</option>${iplOpts}</select>
+      </div>
+      <div class="fg"><label>Man of the Match</label>
+        <input id="me-mom" placeholder="Player name" />
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb12">
+    <div class="fb mb12"><h2>🏏 Batting</h2><button class="btn btn-secondary btn-sm" onclick="addManualBatRow()">+ Add Row</button></div>
+    <div class="alert al-info mb8 small">Select players from squad. Only include players who actually batted.</div>
+    <div class="tscroll"><table id="me-bat-table">
+      <thead><tr><th>Player</th><th>Runs</th><th>Balls</th><th>4s</th><th>6s</th><th>Not Out?</th><th>Dismissal</th><th></th></tr></thead>
+      <tbody id="me-bat-body"></tbody>
+    </table></div>
+    <button class="btn btn-secondary btn-sm mt8" onclick="addManualBatRow()">+ Add Row</button>
+  </div>
+
+  <div class="card mb12">
+    <div class="fb mb12"><h2>⚡ Bowling</h2><button class="btn btn-secondary btn-sm" onclick="addManualBowlRow()">+ Add Row</button></div>
+    <div class="tscroll"><table id="me-bowl-table">
+      <thead><tr><th>Bowler</th><th>Overs</th><th>Maidens</th><th>Runs</th><th>Wickets</th><th>W.Maiden</th><th>Hat-trick?</th><th></th></tr></thead>
+      <tbody id="me-bowl-body"></tbody>
+    </table></div>
+  </div>
+
+  <div class="card mb12">
+    <div class="fb mb12"><h2>🧤 Fielding</h2><button class="btn btn-secondary btn-sm" onclick="addManualFieldRow()">+ Add Row</button></div>
+    <div class="tscroll"><table id="me-field-table">
+      <thead><tr><th>Player</th><th>Catches</th><th>Stumpings</th><th>Run Outs</th><th></th></tr></thead>
+      <tbody id="me-field-body"></tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <button class="btn btn-primary" style="font-size:15px;padding:10px 24px" onclick="submitManualScorecard()">✅ Build Scorecard & Continue →</button>
+  </div>
+
   ` : `
   <div class="card">
     <div class="alert al-warn mb12">⚠️ AI parsing requires OpenRouter credits. Use "Paste Text" if AI fails.</div>
@@ -821,31 +892,131 @@ function vAddScorecard(){
 }
 
 // ═══════════════════════════════════════════
-// CRICBUZZ TEXT PARSER
-// Handles the exact multi-line format Cricbuzz uses:
-// PlayerName
-// dismissal text
-// runs
-// balls
-// 4s
-// 6s
-// SR
+// MANUAL ENTRY — player dropdowns from squad
+// ═══════════════════════════════════════════
+function getSquadPlayerOpts(){
+  // All unique players across all squads
+  const all=[...new Set((S.squad||[]).map(p=>p.name))].sort();
+  return`<option value="">— Select player —</option>`+all.map(n=>`<option value="${n}">${n}</option>`).join('');
+}
+
+function addManualBatRow(){
+  const body=document.getElementById('me-bat-body');if(!body)return;
+  const opts=getSquadPlayerOpts();
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+    <td><select class="me-bat-name" style="min-width:160px">${opts}</select></td>
+    <td><input type="number" value="0" class="me-bat-runs" style="width:55px" /></td>
+    <td><input type="number" value="0" class="me-bat-balls" style="width:55px" /></td>
+    <td><input type="number" value="0" class="me-bat-fours" style="width:45px" /></td>
+    <td><input type="number" value="0" class="me-bat-sixes" style="width:45px" /></td>
+    <td style="text-align:center"><input type="checkbox" class="me-bat-notout" style="width:auto" /></td>
+    <td><input value="" class="me-bat-dismissal" placeholder="c X b Y" style="min-width:110px" /></td>
+    <td><button class="btn btn-danger btn-xs" onclick="this.closest('tr').remove()">✕</button></td>`;
+  body.appendChild(tr);
+}
+
+function addManualBowlRow(){
+  const body=document.getElementById('me-bowl-body');if(!body)return;
+  const opts=getSquadPlayerOpts();
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+    <td><select class="me-bowl-name" style="min-width:160px">${opts}</select></td>
+    <td><input value="0" class="me-bowl-overs" style="width:55px" placeholder="4.0" /></td>
+    <td><input type="number" value="0" class="me-bowl-maidens" style="width:55px" /></td>
+    <td><input type="number" value="0" class="me-bowl-runs" style="width:55px" /></td>
+    <td><input type="number" value="0" class="me-bowl-wickets" style="width:55px" /></td>
+    <td><input type="number" value="0" class="me-bowl-wmaidens" style="width:55px" /></td>
+    <td style="text-align:center"><input type="checkbox" class="me-bowl-hattrick" style="width:auto" /></td>
+    <td><button class="btn btn-danger btn-xs" onclick="this.closest('tr').remove()">✕</button></td>`;
+  body.appendChild(tr);
+}
+
+function addManualFieldRow(){
+  const body=document.getElementById('me-field-body');if(!body)return;
+  const opts=getSquadPlayerOpts();
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+    <td><select class="me-field-name" style="min-width:160px">${opts}</select></td>
+    <td><input type="number" value="0" class="me-field-catches" style="width:60px" /></td>
+    <td><input type="number" value="0" class="me-field-stumpings" style="width:60px" /></td>
+    <td><input type="number" value="0" class="me-field-runouts" style="width:60px" /></td>
+    <td><button class="btn btn-danger btn-xs" onclick="this.closest('tr').remove()">✕</button></td>`;
+  body.appendChild(tr);
+}
+
+function submitManualScorecard(){
+  if(!checkAdmin('submit scorecard')) return;
+  const batting=[];
+  document.querySelectorAll('#me-bat-body tr').forEach(tr=>{
+    const name=tr.querySelector('.me-bat-name')?.value?.trim();
+    if(!name) return;
+    const runs=parseInt(tr.querySelector('.me-bat-runs')?.value)||0;
+    const balls=parseInt(tr.querySelector('.me-bat-balls')?.value)||0;
+    const notOut=tr.querySelector('.me-bat-notout')?.checked||false;
+    const dismissal=tr.querySelector('.me-bat-dismissal')?.value?.trim()||'';
+    if(runs===0&&balls===0&&!notOut&&!dismissal) return;
+    batting.push({name,team:'',runs,balls,
+      fours:parseInt(tr.querySelector('.me-bat-fours')?.value)||0,
+      sixes:parseInt(tr.querySelector('.me-bat-sixes')?.value)||0,
+      strikeRate:balls>0?Math.round((runs/balls)*10000)/100:0,
+      isNotOut:notOut,dismissal});
+  });
+  const bowling=[];
+  document.querySelectorAll('#me-bowl-body tr').forEach(tr=>{
+    const name=tr.querySelector('.me-bowl-name')?.value?.trim();
+    if(!name) return;
+    const overs=tr.querySelector('.me-bowl-overs')?.value?.trim()||'0';
+    const runs=parseInt(tr.querySelector('.me-bowl-runs')?.value)||0;
+    const ov=parseOvers(overs);
+    bowling.push({name,team:'',overs,
+      maidens:parseInt(tr.querySelector('.me-bowl-maidens')?.value)||0,
+      wicketMaidens:parseInt(tr.querySelector('.me-bowl-wmaidens')?.value)||0,
+      runs,wickets:parseInt(tr.querySelector('.me-bowl-wickets')?.value)||0,
+      economy:ov>0?Math.round((runs/ov)*100)/100:0,
+      hasHattrick:tr.querySelector('.me-bowl-hattrick')?.checked||false});
+  });
+  const fielding=[];
+  document.querySelectorAll('#me-field-body tr').forEach(tr=>{
+    const name=tr.querySelector('.me-field-name')?.value?.trim();
+    if(!name) return;
+    const c=parseInt(tr.querySelector('.me-field-catches')?.value)||0;
+    const s=parseInt(tr.querySelector('.me-field-stumpings')?.value)||0;
+    const r=parseInt(tr.querySelector('.me-field-runouts')?.value)||0;
+    if(c===0&&s===0&&r===0) return;
+    fielding.push({name,catches:c,stumpings:s,runOuts:r});
+  });
+  if(batting.length===0&&bowling.length===0){alert('Add at least some batting or bowling data.');return;}
+  const winner=document.getElementById('me-winner')?.value?.trim()||'';
+  const mom=document.getElementById('me-mom')?.value?.trim()||'';
+  const existingMatch=S.matches.find(x=>x.id===scorecardMatchId);
+  pendingSC={
+    match:{team1:'',team2:'',winner,mom},
+    batting,bowling,fielding,
+    matchName:existingMatch?.name||'',
+    matchType:existingMatch?.type||'league',
+    matchDate:existingMatch?.date||''
+  };
+  render();
+}
+
+// ═══════════════════════════════════════════
+// CRICBUZZ TEXT PARSER (auto-detect format)
 // ═══════════════════════════════════════════
 function doParseText(){
   if(!checkAdmin('parse scorecard')) return;
   const txt=document.getElementById('sct')?.value.trim();
-  const winner=document.getElementById('tp-winner')?.value.trim()||'';
-  const mom=document.getElementById('tp-mom')?.value.trim()||'';
+  const winner=document.getElementById('tp-winner')?.value?.trim()||'';
+  const mom=document.getElementById('tp-mom')?.value?.trim()||'';
   if(!txt){alert('Paste the scorecard text first.');return;}
 
   try{
-    // Auto-detect format: ESPNcricinfo has stats on same line as dismissal
-    // Cricbuzz has each stat on its own line
-    const isESPN = detectESPN(txt);
-    const result = isESPN ? parseESPNText(txt) : parseCricbuzzText(txt);
+    // Auto-detect format
+    const fmt=detectFormat(txt);
+    const result = fmt==='espn' ? parseESPNText(txt) : fmt==='tab' ? parseTabText(txt) : parseCricbuzzText(txt);
     const existingMatch=S.matches.find(x=>x.id===scorecardMatchId);
     if(result.batting.length===0 && result.bowling.length===0){
-      alert('Could not parse any player data.\n\nSupports both Cricbuzz and ESPNcricinfo formats. Make sure you copied the full scorecard including both innings.');
+      alert('Could not parse any player data.\n\nSupports Cricbuzz, ESPNcricinfo, and Cricinfo tab formats. Make sure you copied the full scorecard including both innings.');
       return;
     }
     pendingSC={
@@ -859,17 +1030,150 @@ function doParseText(){
   }
 }
 
-// Detect ESPNcricinfo format: stats are on same line as dismissal (e.g. "b Boult42110200.00")
-function detectESPN(txt){
+function detectFormat(txt){
   const lines=txt.split('\n').map(l=>l.trim()).filter(l=>l.length>0);
-  let espnHits=0;
+  let tabHits=0, espnHits=0, cricbuzzHits=0;
   for(const line of lines){
-    // ESPN pattern: line ends with SR decimal and has dismissal text + digits all together
+    // Tab format: line of all numbers separated by tabs (batting stats row)
+    if(/^\d+\t\d+\t\d+\t\d+\t\d+\t[\d.]+$/.test(line)) tabHits++;
+    // Tab format: bowling with tabs
+    if(/^\d[\d.]*\t\d\t\d/.test(line)) tabHits++;
+    // ESPN format: dismissal text + digits + decimal all on one line
     if(/^(not\s+out|b\s+|c\s+|lbw|run\s+out|st\s+|retired).+\d+\.\d{2}$/i.test(line)) espnHits++;
-    // Bowling: pure digit line ending in decimal, e.g. "4057214.25820"
-    if(/^\d{5,15}\.\d{2}\d+$/.test(line)) espnHits++;
+    if(/^\d{5,}\.\d{2}\d+$/.test(line)) espnHits++;
+    // Cricbuzz format: standalone single number lines
+    if(/^\d{1,3}$/.test(line)) cricbuzzHits++;
   }
-  return espnHits >= 2;
+  if(tabHits>=2) return 'tab';
+  if(espnHits>=2) return 'espn';
+  return 'cricbuzz';
+}
+
+// ═══════════════════════════════════════════
+// TAB-SEPARATED PARSER (Cricinfo website copy-paste)
+// Batting: Name / Dismissal / R TAB B TAB M TAB 4s TAB 6s TAB SR
+// Bowling: Name / O TAB M TAB R TAB W TAB ECO TAB 0s TAB WD TAB NB
+//   (with edge cases: W on separate line, R W ECO space-merged)
+// ═══════════════════════════════════════════
+function parseTabText(txt){
+  const rawLines=txt.split('\n').map(l=>l.trimEnd()).filter(l=>l.trim().length>0);
+  const lines=rawLines.map(l=>({raw:l.trim(),parts:l.trim().split('\t').map(p=>p.trim()).filter(p=>p.length>0)}));
+  const batting=[], bowling=[], fielding=[];
+  const fieldMap={};
+  let winner='', mom='';
+
+  for(const {raw} of lines){
+    const low=raw.toLowerCase();
+    if(low.includes('player of the match')||low.includes('man of the match')){
+      const p=raw.split(/[:\-\u2013]/);if(p.length>1) mom=p[p.length-1].trim();
+    }
+    if(low.includes('won by')){const wm=raw.match(/^(.+?)\s+won\s+by/i);if(wm) winner=wm[1].trim();}
+  }
+
+  const isNumericStr=s=>/^[\d.]+$/.test(s.trim());
+  const DISM=[/^not\s+out$/i,/^c\s+/i,/^st\s+/i,/^b\s+/i,/^lbw\b/i,
+    /^run\s+out/i,/^hit\s+wicket/i,/^retired/i,/^obstructing/i,/^timed\s+out/i];
+  const isDismissal=s=>DISM.some(p=>p.test(s.trim()));
+
+  const isSkip=l=>{
+    const t=l.toLowerCase().trim();
+    if(['batting','bowling','fall of wickets','extras','total','did not bat','yet to bat','drs','batter','bowler'].some(s=>t===s||t.startsWith(s+'\t'))) return true;
+    if(/^(r|b|m|4s|6s|sr|o|w|eco|econ|0s|wd|nb)(\t|$)/i.test(t)) return true;
+    if(t.startsWith('total ')||t.startsWith('extras ')||t.startsWith('fall of')) return true;
+    if(/^\d+(\.\d+)?\s+ov/i.test(t)||/\(.*ovs?\s+maximum\)/i.test(t)) return true;
+    if(/^(t:|batting\s+r)/i.test(t)) return true;
+    if(/^\(.*\)$/.test(t)) return true;
+    return false;
+  };
+
+  function parseBowlJoined(partsArr){
+    const tokens=partsArr.join(' ').split(/\s+/).filter(t=>t.length>0);
+    if(tokens.length<5) return null;
+    let ecoIdx=-1;
+    for(let j=0;j<tokens.length;j++){
+      if(/^\d{1,2}\.\d{2}$/.test(tokens[j])){
+        const v=parseFloat(tokens[j]);
+        if(v>=0&&v<=25){ecoIdx=j;break;}
+      }
+    }
+    if(ecoIdx<0) return null;
+    const before=tokens.slice(0,ecoIdx);
+    if(before.length<4) return null;
+    const W=parseInt(before[before.length-1]);
+    const R=parseInt(before[before.length-2]);
+    const M=parseInt(before[before.length-3]);
+    const O=before[before.length-4];
+    const eco=parseFloat(tokens[ecoIdx]);
+    if(isNaN(W)||isNaN(R)||isNaN(M)||!O) return null;
+    if(R>150||M>6||W>10) return null;
+    return{overs:O,maidens:M,runs:R,wickets:W,economy:eco};
+  }
+
+  let i=0;
+  while(i<lines.length){
+    const {raw,parts}=lines[i];
+    if(isSkip(raw)){i++;continue;}
+    if(parts.length!==1||isNumericStr(raw)||isSkip(raw)){i++;continue;}
+    const name=raw.replace(/[\u2020\u271D]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
+    if(name.length<2){i++;continue;}
+    if(i+1>=lines.length){i++;continue;}
+    const next=lines[i+1];
+
+    // BATTING A: dismissal line then 6-part stats
+    if(next.parts.length===1&&isDismissal(next.raw)&&i+2<lines.length){
+      const statsLine=lines[i+2];
+      if(statsLine.parts.length===6&&isNumericStr(statsLine.parts[0])){
+        const sp=statsLine.parts;
+        const dismissal=next.raw.replace(/[\u2020\u271D]/g,'').trim();
+        batting.push({name,team:'',runs:parseInt(sp[0])||0,balls:parseInt(sp[1])||0,
+          fours:parseInt(sp[3])||0,sixes:parseInt(sp[4])||0,
+          strikeRate:parseFloat(sp[5])||0,isNotOut:/not\s*out/i.test(dismissal),dismissal});
+        extractFielding(dismissal,fieldMap);
+        i+=3;continue;
+      }
+    }
+
+    // BATTING B: "not out\tR\tB\tM\t4s\t6s\tSR" (7 parts)
+    if(next.parts.length>=7&&/^not\s+out$/i.test(next.parts[0])&&isNumericStr(next.parts[1])){
+      const sp=next.parts;
+      batting.push({name,team:'',runs:parseInt(sp[1])||0,balls:parseInt(sp[2])||0,
+        fours:parseInt(sp[4])||0,sixes:parseInt(sp[5])||0,
+        strikeRate:parseFloat(sp[6])||0,isNotOut:true,dismissal:'not out'});
+      i+=2;continue;
+    }
+
+    // BOWLING A: normal 8-part line
+    if(next.parts.length===8&&isNumericStr(next.parts[0])){
+      const bp=parseBowlJoined(next.parts);
+      if(bp){bowling.push({name,team:'',overs:bp.overs,maidens:bp.maidens,wicketMaidens:0,
+        runs:bp.runs,wickets:bp.wickets,economy:bp.economy,hasHattrick:false});i+=2;continue;}
+    }
+
+    // BOWLING B: split W — "O\tM\tR" then lone W then "ECO\t0s\tWD\tNB"
+    if(next.parts.length===3&&isNumericStr(next.parts[0])&&i+3<lines.length){
+      const wLine=lines[i+2],ecoLine=lines[i+3];
+      if(wLine.parts.length===1&&isNumericStr(wLine.raw)&&ecoLine.parts.length>=3){
+        const bp=parseBowlJoined([...next.parts,wLine.raw,...ecoLine.parts]);
+        if(bp){bowling.push({name,team:'',overs:bp.overs,maidens:bp.maidens,wicketMaidens:0,
+          runs:bp.runs,wickets:bp.wickets,economy:bp.economy,hasHattrick:false});i+=4;continue;}
+      }
+    }
+
+    // BOWLING C: space-merged (e.g. "4\t0\t26 3 6.50\t13\t1\t0")
+    if(next.parts.length>=4&&next.parts.length<=7&&isNumericStr(next.parts[0].split(/\s/)[0])){
+      const bp=parseBowlJoined(next.parts);
+      if(bp){bowling.push({name,team:'',overs:bp.overs,maidens:bp.maidens,wicketMaidens:0,
+        runs:bp.runs,wickets:bp.wickets,economy:bp.economy,hasHattrick:false});i+=2;continue;}
+    }
+
+    i++;
+  }
+
+  for(const fn in fieldMap)
+    if(fieldMap.hasOwnProperty(fn))
+      fielding.push({name:fn,catches:fieldMap[fn].catches,stumpings:fieldMap[fn].stumpings,runOuts:fieldMap[fn].runOuts});
+
+  return{team1:'',team2:'',winner,mom,batting,bowling,fielding};
 }
 
 // ═══════════════════════════════════════════
@@ -2103,7 +2407,7 @@ function predCardInput(m, canInput){
           <td>${p
             ? `<span class="badge b-blue">${p.prediction}</span>${canEdit&&isAdmin?` <button class="btn btn-ghost btn-xs" onclick="clearPred('${t.id}','${m.id}')">✕</button>`:''}`
             : (canEdit && isAdmin
-                ? `<div class="fc g6"><input id="pi-${t.id}-${m.id}" placeholder="e.g. MI" style="width:80px" /><button class="btn btn-secondary btn-xs" onclick="savePred('${t.id}','${m.id}')">Save</button></div>`
+                ? `<div class="fc g6"><select id="pi-${t.id}-${m.id}" style="width:90px"><option value="">Pick…</option>${['MI','CSK','RCB','KKR','PBKS','RR','SRH','DC','GT','LSG'].map(x=>`<option>${x}</option>`).join('')}</select><button class="btn btn-secondary btn-xs" onclick="savePred('${t.id}','${m.id}')">Save</button></div>`
                 : `<span class="muted small">—</span>`)
           }</td>
           <td>${m.winner?`<span class="badge ${correct?'b-green':'b-red'}">${m.winner}</span>`:'—'}</td>
@@ -2126,9 +2430,9 @@ async function clearPred(tid, mid){
 
 async function savePred(tid,mid){
   if(!checkAdmin('save a prediction')) return;
-  const inp=document.getElementById(`pi-${tid}-${mid}`);
-  const pred=inp?.value.trim();
-  if(!pred){alert('Enter a team name');return;}
+  const el=document.getElementById(`pi-${tid}-${mid}`);
+  const pred=el?.value?.trim();
+  if(!pred||pred===''){alert('Select a team to predict');return;}
   const m=S.matches.find(x=>x.id===mid);
   const todayStr=new Date().toISOString().split('T')[0];
   if(m?.date && m.date !== todayStr){alert('Predictions can only be saved for today\'s matches.');return;}
