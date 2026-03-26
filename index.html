@@ -220,7 +220,8 @@ const defState = () => ({
   version:2, teams:[], matches:[], squad:[],
   awards:{
     orangeCap:null, secondRuns:null, purpleCap:null, secondWickets:null,
-    manOfSeries:null, mostSixes:null, mostFours:null,
+    manOfSeries:null, emergingPlayer:null, mostGreenDots:null, bestCatch:null,
+    mostSixes:null, mostFours:null,
     standings:{first:null,second:null,third:null,fourth:null},
     multipliers:{}
   }
@@ -304,42 +305,55 @@ function parseOvers(o){
   return (parseInt(p[0])||0)+(parseInt(p[1])||0)/6;
 }
 
+// ═══════════════════════════════════════════
+// SCORING ENGINE — updated rules
+// ═══════════════════════════════════════════
 function scoreBatting(b){
   const runs=b.runs||0, balls=b.balls||0, notOut=!!b.isNotOut;
   let pts=0; const bd=[];
+
+  // Duck penalties
   if(!notOut && runs===0){
-    if(balls===0){ pts-=75; bd.push({l:'Diamond duck 0(0)',p:-75,c:'pen'}); }
-    else if(balls===1){ pts-=50; bd.push({l:'Golden duck 0(1)',p:-50,c:'pen'}); }
-    else { pts-=30; bd.push({l:'Duck',p:-30,c:'pen'}); }
+    if(balls===0){pts-=75;bd.push({l:'Diamond duck 0(0)',p:-75,c:'pen'});}
+    else if(balls===1){pts-=50;bd.push({l:'Golden duck 0(1)',p:-50,c:'pen'});}
+    else{pts-=30;bd.push({l:'Duck',p:-30,c:'pen'});}
   }
-  if(notOut){ pts+=10; bd.push({l:'Not out',p:10,c:'bat'}); }
-  let mult=1, flat=0;
-  if(runs>=150) mult=4;
-  else if(runs>=130) mult=3;
-  else if(runs>=100) mult=2;
-  else if(runs>=75) flat=50;
-  else if(runs>=50) flat=30;
-  else if(runs>=30) flat=20;
+
+  // Not out bonus
+  if(notOut){pts+=10;bd.push({l:'Not out +10',p:10,c:'bat'});}
+
+  // Run scoring: 1 run = 1 pt, with multiplier at 100/130/150
   if(runs>0){
+    let mult=1;
+    if(runs>=150) mult=4;
+    else if(runs>=130) mult=3;
+    else if(runs>=100) mult=2;
     const rp=runs*mult;
     pts+=rp;
     if(mult>1) bd.push({l:`${runs} runs ×${mult}`,p:rp,c:'bat'});
     else bd.push({l:`${runs} runs`,p:runs,c:'bat'});
   }
-  if(flat>0){
-    pts+=flat;
-    const fl=runs>=75?'75-99 bonus':runs>=50?'50-74 bonus':'30-49 bonus';
-    bd.push({l:fl,p:flat,c:'bat'});
-  }
+
+  // Flat batting bonuses
+  let flat=0,fl='';
+  if(runs>=100) flat=0; // already handled by multiplier, no additional flat
+  else if(runs>=75){flat=50;fl='75-99 bonus +50';}
+  else if(runs>=50){flat=30;fl='50-74 bonus +30';}
+  else if(runs>=30){flat=20;fl='30-49 bonus +20';}
+  if(flat>0){pts+=flat;bd.push({l:fl,p:flat,c:'bat'});}
+
+  // Strike rate bonus (min 10 balls)
   if(balls>=10){
     const sr=(runs/balls)*100;
     let sb=0,sl='';
-    if(balls>=30&&sr>=250){sb=75;sl=`SR ${sr.toFixed(0)} ≥250`;}
-    else if(sr>=200){sb=50;sl=`SR ${sr.toFixed(0)} ≥200`;}
-    else if(sr>=180){sb=40;sl=`SR ${sr.toFixed(0)} ≥180`;}
-    else if(sr>=150){sb=30;sl=`SR ${sr.toFixed(0)} ≥150`;}
+    if(balls>=25&&sr>=250){sb=75;sl=`SR ${sr.toFixed(0)} ≥250 (25+ balls) +75`;}
+    else if(sr>=225){sb=50;sl=`SR ${sr.toFixed(0)} ≥225 +50`;}
+    else if(sr>=200){sb=40;sl=`SR ${sr.toFixed(0)} ≥200 +40`;}
+    else if(sr>=180){sb=30;sl=`SR ${sr.toFixed(0)} ≥180 +30`;}
+    else if(sr>=150){sb=20;sl=`SR ${sr.toFixed(0)} ≥150 +20`;}
     if(sb>0){pts+=sb;bd.push({l:sl,p:sb,c:'bat'});}
   }
+
   return{pts,bd};
 }
 
@@ -348,36 +362,49 @@ function scoreBowling(b){
   const maidens=b.maidens||0, wMaidens=b.wicketMaidens||0, hattrick=!!b.hasHattrick;
   const ov=parseOvers(overs);
   let pts=0; const bd=[];
-  const base=wk*30;
-  let mult=1, flat=0;
-  if(wk>=7) mult=4;
-  else if(wk>=6) mult=3;
-  else if(wk>=5) mult=2;
-  else if(wk>=4) flat=50;
-  else if(wk>=3) flat=30;
+
+  // Wicket points: 1 wicket = 25 pts, with multiplier at 5/6/7+
   if(wk>0){
+    const base=wk*25;
+    let mult=1, flat=0;
+    if(wk>=7){mult=4;}
+    else if(wk>=6){mult=3;}
+    else if(wk>=5){mult=2;}
+    else if(wk>=4){flat=50;}
+    else if(wk>=3){flat=30;}
     const wp=base*mult;
     pts+=wp;
     if(mult>1) bd.push({l:`${wk} wickets ×${mult}`,p:wp,c:'bowl'});
     else bd.push({l:`${wk} wicket${wk>1?'s':''}`,p:base,c:'bowl'});
-    if(flat>0){pts+=flat;bd.push({l:`${wk}W bonus`,p:flat,c:'bowl'});}
+    if(flat>0){pts+=flat;bd.push({l:`${wk}W bonus +${flat}`,p:flat,c:'bowl'});}
   }
+
+  // Maidens
   const regM=Math.max(0,maidens-wMaidens);
   if(wMaidens>0){pts+=wMaidens*100;bd.push({l:`${wMaidens} wicket maiden`,p:wMaidens*100,c:'bowl'});}
-  if(regM>0){pts+=regM*50;bd.push({l:`${regM} maiden`,p:regM*50,c:'bowl'});}
-  if(hattrick){pts+=200;bd.push({l:'Hat-trick!',p:200,c:'bowl'});}
+  if(regM>0){pts+=regM*75;bd.push({l:`${regM} maiden`,p:regM*75,c:'bowl'});}
+
+  // Hat-trick
+  if(hattrick){pts+=200;bd.push({l:'Hat-trick! +200',p:200,c:'bowl'});}
+
+  // Economy bonus (min 2 overs)
   if(ov>=2){
-    const eco=ov>0?runs/ov:99;
+    const eco=runs/ov;
     let eb=0,el='';
-    if(ov>=3&&eco<=2.7){eb=75;el=`Eco ${eco.toFixed(2)} ≤2.7`;}
-    else if(eco<=3.5){eb=50;el=`Eco ${eco.toFixed(2)} ≤3.5`;}
-    else if(eco<=5.0){eb=40;el=`Eco ${eco.toFixed(2)} ≤5.0`;}
-    else if(eco<=5.5){eb=30;el=`Eco ${eco.toFixed(2)} ≤5.5`;}
+    if(ov>=3&&eco<=2.7){eb=75;el=`Eco ${eco.toFixed(2)} ≤2.7 (3+ ov) +75`;}
+    else if(eco<=3.5){eb=50;el=`Eco ${eco.toFixed(2)} ≤3.5 +50`;}
+    else if(eco<=4.0){eb=40;el=`Eco ${eco.toFixed(2)} ≤4.0 +40`;}
+    else if(eco<=5.0){eb=30;el=`Eco ${eco.toFixed(2)} ≤5.0 +30`;}
+    else if(eco<=5.5){eb=20;el=`Eco ${eco.toFixed(2)} ≤5.5 +20`;}
     if(eb>0){pts+=eb;bd.push({l:el,p:eb,c:'bowl'});}
   }
-  if(runs>=65){pts-=75;bd.push({l:`${runs} runs conceded`,p:-75,c:'pen'});}
-  else if(runs>=55){pts-=50;bd.push({l:`${runs} runs conceded`,p:-50,c:'pen'});}
-  else if(runs>=50){pts-=30;bd.push({l:`${runs} runs conceded`,p:-30,c:'pen'});}
+
+  // Runs conceded penalties
+  if(runs>=70){pts-=75;bd.push({l:`${runs} runs conceded −75`,p:-75,c:'pen'});}
+  else if(runs>=65){pts-=50;bd.push({l:`${runs} runs conceded −50`,p:-50,c:'pen'});}
+  else if(runs>=60){pts-=30;bd.push({l:`${runs} runs conceded −30`,p:-30,c:'pen'});}
+  else if(runs>=55){pts-=20;bd.push({l:`${runs} runs conceded −20`,p:-20,c:'pen'});}
+
   return{pts,bd};
 }
 
@@ -397,10 +424,10 @@ function applyRole(pts, isC, isVC){
 }
 
 function calcPlayerTotal(pdata, isC=false, isVC=false){
-  let base=0; let bd=[];
-  if(pdata.batting){ const r=scoreBatting(pdata.batting); base+=r.pts; bd.push(...r.bd); }
-  if(pdata.bowling){ const r=scoreBowling(pdata.bowling); base+=r.pts; bd.push(...r.bd); }
-  if(pdata.fielding){ const r=scoreFielding(pdata.fielding); base+=r.pts; bd.push(...r.bd); }
+  let base=0; const bd=[];
+  if(pdata.batting){const r=scoreBatting(pdata.batting);base+=r.pts;bd.push(...r.bd);}
+  if(pdata.bowling){const r=scoreBowling(pdata.bowling);base+=r.pts;bd.push(...r.bd);}
+  if(pdata.fielding){const r=scoreFielding(pdata.fielding);base+=r.pts;bd.push(...r.bd);}
   const final=applyRole(base,isC,isVC);
   const bonus=final-base;
   if(bonus>0){
@@ -452,17 +479,20 @@ function teamTotal(team){
     if(m.completed && m.teamScores?.[team.id]) t+=m.teamScores[team.id].total||0;
   }
   const wrongSwaps=(team.swaps?.history||[]).filter(s=>s.isWrong).length;
-  t+=wrongSwaps*(-300);
+  t+=wrongSwaps*(-200);
   const a=S.awards;
   const mult=k=>{const r=a.multipliers?.[k]||'none';return r==='captain'?2:r==='vc'?1.5:1;};
   // Season awards — with C/VC multiplier
-  if(a.orangeCap===team.id)     t+=Math.round(200*mult('orangeCap'));
-  if(a.secondRuns===team.id)    t+=Math.round(150*mult('secondRuns'));
-  if(a.purpleCap===team.id)     t+=Math.round(200*mult('purpleCap'));
-  if(a.secondWickets===team.id) t+=Math.round(150*mult('secondWickets'));
-  if(a.manOfSeries===team.id)   t+=Math.round(250*mult('manOfSeries'));
-  if(a.mostSixes===team.id)     t+=Math.round(100*mult('mostSixes'));
-  if(a.mostFours===team.id)     t+=Math.round(100*mult('mostFours'));
+  if(a.orangeCap===team.id)        t+=Math.round(150*mult('orangeCap'));
+  if(a.secondRuns===team.id)       t+=Math.round(100*mult('secondRuns'));
+  if(a.purpleCap===team.id)        t+=Math.round(150*mult('purpleCap'));
+  if(a.secondWickets===team.id)    t+=Math.round(100*mult('secondWickets'));
+  if(a.manOfSeries===team.id)      t+=Math.round(200*mult('manOfSeries'));
+  if(a.emergingPlayer===team.id)   t+=Math.round(100*mult('emergingPlayer'));
+  if(a.mostGreenDots===team.id)    t+=Math.round(100*mult('mostGreenDots'));
+  if(a.bestCatch===team.id)        t+=Math.round(100*mult('bestCatch'));
+  if(a.mostSixes===team.id)        t+=Math.round(100*mult('mostSixes'));
+  if(a.mostFours===team.id)        t+=Math.round(100*mult('mostFours'));
   // Final standings — no multiplier
   if(a.standings?.first===team.id)   t+=300;
   if(a.standings?.second===team.id)  t+=250;
@@ -1999,7 +2029,7 @@ function teamCard(t){
       <span class="badge b-blue">VC: ${t.currentVc||'None'}</span>
       ${['Batsman','All-rounder','Wicket-keeper','Bowler'].map(r=>`<span class="badge ${f[r]===FORMATION[r]?'b-green':'b-red'}">${r.slice(0,3)}: ${f[r]||0}/${FORMATION[r]}</span>`).join('')}
       <span class="badge b-gray xs">Squad: ${mySquad.length} · XI: ${t.players.length}/11</span>
-      <span class="badge b-gray xs">Season P:${15-(sw.player||0)} C:${5-(sw.captain||0)} VC:${5-(sw.vc||0)}</span>
+      <span class="badge b-gray xs">Swaps P:${25-(sw.player||0)} C:${7-(sw.captain||0)} VC:${7-(sw.vc||0)}</span>
     </div>
     ${formErrors.length&&t.players.length===11?`<div class="alert al-warn mb8 small">⚠️ Formation: ${formErrors.join(' · ')}</div>`:''}
     ${!seasonStarted&&t.players.length<11?`<div class="alert al-warn mb8 small">⚠️ XI incomplete (${t.players.length}/11). Use "Pick XI" to select from squad.</div>`:''}
@@ -2160,70 +2190,40 @@ function getMatchDates() {
   return map;
 }
 
-function getDailyFreeSwapsUsed(team) {
-  const used = {};
-  for (const h of (team.swaps?.history || [])) {
-    if (h.isFree && h.matchDate) {
-      used[h.matchDate] = (used[h.matchDate] || 0) + 1;
-    }
-  }
-  return used;
-}
-
-function getDailyFreeSwapsAllowed(dateStr) {
-  const dateMap = getMatchDates();
-  return (dateMap[dateStr] || []).length;
-}
-
-function canUseFreeSwap(team, dateStr) {
-  if (!dateStr) return false;
-  const allowed = getDailyFreeSwapsAllowed(dateStr);
-  if (allowed === 0) return false;
-  const usedMap = getDailyFreeSwapsUsed(team);
-  return (usedMap[dateStr] || 0) < allowed;
-}
-
 function vSwaps(){
   return`<div class="fb mb16"><h1>Swap Tracker</h1></div>
   <div class="alert al-info mb12">
-    <strong>Swap Rules:</strong> Each match day gives 1 free swap (2 if 2 games that day) — free swaps don't count against your season total.
-    Season limits: <strong>15 player swaps</strong> · 5 captain · 5 VC. <strong>Wrong swap = −300 pts.</strong>
+    <strong>Swap Rules:</strong> Season limits: <strong>25 player swaps · 7 captain · 7 VC</strong>.
+    Wrong swap = <strong class="neg">−200 pts</strong> and still counts against your season total.
   </div>
   ${S.teams.map(t=>swapCard(t)).join('')}
   <div id="mc"></div>`;
 }
 
 function swapCard(t){
-  const sw = t.swaps || {player:0, captain:0, vc:0, history:[]};
-  const freeUsedMap = getDailyFreeSwapsUsed(t);
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todayAllowed = getDailyFreeSwapsAllowed(todayStr);
-  const todayUsed = freeUsedMap[todayStr] || 0;
-  const todayFreeLeft = Math.max(0, todayAllowed - todayUsed);
-
+  const sw=t.swaps||{player:0,captain:0,vc:0,history:[]};
   return`<div class="card mb12">
     <div class="fb mb12">
       <span style="font-weight:700">${t.name}</span>
       ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="showSwapModal('${t.id}')">+ Log Swap</button>`:''}
     </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
-      <div class="stat-card">
-        <div class="val ${todayFreeLeft===0?'neg':'pos'}">${todayFreeLeft}</div>
-        <div class="lbl">Free Today</div>
-        <div class="pbar"><div class="pfill" style="width:${todayAllowed>0?(todayFreeLeft/todayAllowed)*100:0}%"></div></div>
-      </div>
-      ${[{l:'Season Swaps',u:sw.player||0,max:15},{l:'Captain Swaps',u:sw.captain||0,max:5},{l:'VC Swaps',u:sw.vc||0,max:5}].map(x=>`
-        <div class="stat-card"><div class="val ${x.max-x.u<=1?'neg':''}">${x.max-x.u}/${x.max}</div><div class="lbl">${x.l} Left</div>
-        <div class="pbar"><div class="pfill" style="width:${((x.max-x.u)/x.max)*100}%"></div></div></div>`).join('')}
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">
+      ${[{l:'Player Swaps',u:sw.player||0,max:25},{l:'Captain Swaps',u:sw.captain||0,max:7},{l:'VC Swaps',u:sw.vc||0,max:7}].map(x=>`
+        <div class="stat-card">
+          <div class="val ${x.max-x.u<=3?'neg':''}">${x.max-x.u}/${x.max}</div>
+          <div class="lbl">${x.l} Left</div>
+          <div class="pbar"><div class="pfill" style="width:${((x.max-x.u)/x.max)*100}%"></div></div>
+        </div>`).join('')}
     </div>
     ${(sw.history||[]).length?`<h3>History</h3><div class="tscroll"><table>
-      <thead><tr><th>Type</th><th>Out</th><th>In</th><th>Match</th><th>Kind</th><th>Status</th></tr></thead>
+      <thead><tr><th>Type</th><th>Out</th><th>In</th><th>Match</th><th>Status</th>${isAdmin?'<th></th>':''}</tr></thead>
       <tbody>${[...(sw.history||[])].map((s,idx)=>`<tr>
         <td><span class="badge ${s.type==='player'?'b-blue':s.type==='captain'?'b-gold':'b-purple'}">${s.type}</span></td>
-        <td class="muted">${s.from||'—'}</td><td>${s.to||'—'}</td><td class="muted small">${s.match||'—'}</td>
-        <td>${s.isFree?'<span class="badge b-green">Free</span>':'<span class="badge b-gray">Paid</span>'}</td>
-        <td>${s.isWrong?'<span class="badge b-red">WRONG −300</span>':'<span class="badge b-green">Valid</span>'}</td>
-        ${isAdmin?`<td><button class="btn btn-danger btn-xs" onclick="reverseSwap('${t.id}',${(sw.history.length-1-idx)})">↩</button></td>`:'<td></td>'}
+        <td class="muted">${s.from||'—'}</td>
+        <td>${s.to||'—'}</td>
+        <td class="muted small">${s.match||'—'}</td>
+        <td>${s.isWrong?'<span class="badge b-red">WRONG −200</span>':'<span class="badge b-green">Valid</span>'}</td>
+        ${isAdmin?`<td><button class="btn btn-danger btn-xs" onclick="reverseSwap('${t.id}',${sw.history.length-1-idx})">↩</button></td>`:''}
       </tr>`).reverse().join('')}</tbody>
     </table></div>`:'<p class="muted small">No swaps logged</p>'}
   </div>`;
@@ -2231,9 +2231,7 @@ function swapCard(t){
 
 function showSwapModal(tid){
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
-  const todayStr=new Date().toISOString().split('T')[0];
-  const freeAvailable=canUseFreeSwap(t, todayStr);
-  const todayAllowed=getDailyFreeSwapsAllowed(todayStr);
+  const sw=t.swaps||{player:0,captain:0,vc:0,history:[]};
   const seasonStarted=hasMatchStarted();
   const mySquad=(S.squad||[]).filter(p=>p.ownerTeam===t.name);
   const available=mySquad.filter(sq=>!t.players.some(p=>p.name===sq.name));
@@ -2241,14 +2239,14 @@ function showSwapModal(tid){
   for(const h of (t.swaps?.history||[])){
     if(h.type==='player' && h.from) playerSwapCount[h.from]=(playerSwapCount[h.from]||0)+1;
   }
+  const pLeft=25-(sw.player||0), cLeft=7-(sw.captain||0), vcLeft=7-(sw.vc||0);
 
   addModal('swap-modal',`<div class="mhead"><h2>Log Swap — ${t.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('swap-modal')">✕</button></div>
-  ${todayAllowed===0?'<div class="alert al-warn mb12">No matches today — free swap not available.</div>':''}
-  ${freeAvailable?`<div class="alert al-success mb12">✅ Free swap available today (${todayAllowed} game${todayAllowed>1?'s':''} today)</div>`:'<div class="alert al-info mb12">No free swaps left today — uses a season swap.</div>'}
+  <div class="alert al-info mb12 small">Remaining: <strong>${pLeft} player</strong> · <strong>${cLeft} captain</strong> · <strong>${vcLeft} VC</strong>. Wrong swap = −200 pts.</div>
   <div class="fg"><label>Swap Type</label>
     <select id="sw-type" onchange="updateSwapForm('${tid}')">
-      <option value="player">Player Swap</option>
-      ${seasonStarted?`<option value="captain">Captain Swap (uses season C swap)</option><option value="vc">Vice-Captain Swap (uses season VC swap)</option>`:''}
+      <option value="player">Player Swap (${pLeft} left)</option>
+      ${seasonStarted?`<option value="captain">Captain Swap (${cLeft} left)</option><option value="vc">Vice-Captain Swap (${vcLeft} left)</option>`:''}
     </select>
   </div>
   <div id="sw-player-fields">
@@ -2256,21 +2254,21 @@ function showSwapModal(tid){
       <div class="fg">
         <label>Player Out (from Playing XI)</label>
         <select id="sw-from">
-          ${t.players.map(p=>`<option value="${p.name}" data-role="${p.role}">${p.name} (${p.role||'?'}) — ${playerSwapCount[p.name]||0} prev swaps</option>`).join('')}
+          ${t.players.map(p=>`<option value="${p.name}">${p.name} (${p.role||'?'}) — ${playerSwapCount[p.name]||0} prev swaps</option>`).join('')}
         </select>
       </div>
       <div class="fg">
-        <label>Player In (from Squad — not in XI)</label>
+        <label>Player In (from Squad)</label>
         <select id="sw-to-select">
-          <option value="">— Select from squad —</option>
-          ${available.map(p=>`<option value="${p.name}" data-role="${p.role}">${p.name} (${p.role||'?'}) · ${p.iplTeam||'?'}</option>`).join('')}
+          <option value="">— Select —</option>
+          ${available.map(p=>`<option value="${p.name}">${p.name} (${p.role||'?'}) · ${p.iplTeam||'?'}</option>`).join('')}
         </select>
-        ${available.length===0?'<p class="muted small mt4">All squad players are already in XI.</p>':''}
+        ${available.length===0?'<p class="muted small mt4">All squad players are in XI.</p>':''}
       </div>
     </div>
   </div>
   <div id="sw-role-fields" style="display:none">
-    <div class="fg"><label>New Captain / VC (from Playing XI)</label>
+    <div class="fg"><label>New Captain / VC</label>
       <select id="sw-to-role">
         <option value="">— Select player —</option>
         ${t.players.map(p=>`<option value="${p.name}">${p.name}</option>`).join('')}
@@ -2278,9 +2276,9 @@ function showSwapModal(tid){
     </div>
   </div>
   <div class="fg"><label>For Match</label>
-    <select id="sw-match"><option value="">Next match</option>${S.matches.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}</select></div>
-  <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sw-wrong" style="width:auto" /> Mark as WRONG swap (−300 pts penalty)</label></div>
-  <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sw-free" style="width:auto" ${freeAvailable?'checked':''} ${!freeAvailable?'disabled':''}/> Use free daily swap ${!freeAvailable?'(none left)':''}</label></div>
+    <select id="sw-match"><option value="">Next match</option>${S.matches.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}</select>
+  </div>
+  <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sw-wrong" style="width:auto" /> Mark as WRONG swap (−200 pts penalty)</label></div>
   <button class="btn btn-primary" onclick="logSwap('${tid}')">Log Swap</button>`);
 }
 
@@ -2300,13 +2298,13 @@ async function logSwap(tid){
     : document.getElementById('sw-to-role')?.value);
   const mid=document.getElementById('sw-match')?.value;
   const isWrong=document.getElementById('sw-wrong')?.checked;
-  const wantFree=document.getElementById('sw-free')?.checked;
   if(!to){alert(type==='player'?'Select a player to swap in':'Select the new captain/VC');return;}
   if(!t.swaps)t.swaps={player:0,captain:0,vc:0,history:[]};
 
   const todayStr=new Date().toISOString().split('T')[0];
   const matchDate=S.matches.find(m=>m.id===mid)?.date||todayStr;
 
+  // Formation check for non-wrong player swaps
   if(type==='player' && !isWrong){
     const outPlayer=t.players.find(p=>p.name===from);
     const inPlayer=(S.squad||[]).find(p=>p.name===to&&p.ownerTeam===t.name);
@@ -2315,7 +2313,7 @@ async function logSwap(tid){
     const tempPlayers=t.players.filter(p=>p.name!==from).concat([{name:to,role:newRole}]);
     const errs=validateFormation(tempPlayers);
     if(errs.length){
-      const proceed=confirm(`⚠️ Formation warning:\n${errs.join('\n')}\n\nThis will be marked as a WRONG swap (−300 pts). Proceed?`);
+      const proceed=confirm(`⚠️ Formation warning:\n${errs.join('\n')}\n\nThis will be marked as a WRONG swap (−200 pts). Proceed?`);
       if(!proceed)return;
       document.getElementById('sw-wrong').checked=true;
     }
@@ -2323,24 +2321,19 @@ async function logSwap(tid){
 
   const isWrongFinal=document.getElementById('sw-wrong')?.checked;
 
-  let isFree=false;
-  if(!isWrongFinal && type==='player' && wantFree){
-    if(canUseFreeSwap(t,matchDate)) isFree=true;
-    else{alert(`No free swaps left for ${matchDate}.`);return;}
+  // Check season limits (wrong swaps also count against limits)
+  const limits={player:25,captain:7,vc:7};
+  if((t.swaps[type]||0)>=limits[type]){
+    alert(`No ${type} swaps remaining this season! (${limits[type]} max)`);return;
   }
-
-  const limits={player:15,captain:5,vc:5};
-  if(!isWrongFinal && !isFree){
-    if((t.swaps[type]||0)>=limits[type]){alert(`No ${type} swaps remaining this season!`);return;}
-    t.swaps[type]=(t.swaps[type]||0)+1;
-  }
+  t.swaps[type]=(t.swaps[type]||0)+1;
 
   const mname=S.matches.find(m=>m.id===mid)?.name||'Next match';
   const outPlayer=t.players.find(p=>p.name===from);
   const inPlayer=(S.squad||[]).find(p=>p.name===to&&p.ownerTeam===t.name);
   const newRole=inPlayer?.role||outPlayer?.role||'';
 
-  t.swaps.history.push({type,from,to,match:mname,matchId:mid,matchDate,isFree,isWrong:isWrongFinal,date:new Date().toISOString(),newRole});
+  t.swaps.history.push({type,from,to,match:mname,matchId:mid,matchDate,isWrong:isWrongFinal,date:new Date().toISOString(),newRole});
 
   if(!isWrongFinal){
     if(type==='player'){
@@ -2463,11 +2456,14 @@ function vAwards(){
     return`<span class="hl" style="font-weight:700">${final}</span>${f>1?`<span class="muted small"> (${pts}×${f})</span>`:''}`;
   };
   const arows=[
-    {k:'orangeCap',l:'🟠 Orange Cap',pts:200,src:a.orangeCap},
-    {k:'secondRuns',l:'🟠 2nd Highest Runs',pts:150,src:a.secondRuns},
-    {k:'purpleCap',l:'🟣 Purple Cap',pts:200,src:a.purpleCap},
-    {k:'secondWickets',l:'🟣 2nd Highest Wickets',pts:150,src:a.secondWickets},
-    {k:'manOfSeries',l:'⭐ Man of the Series',pts:250,src:a.manOfSeries},
+    {k:'orangeCap',l:'🟠 Orange Cap',pts:150,src:a.orangeCap},
+    {k:'secondRuns',l:'🟠 2nd Highest Runs',pts:100,src:a.secondRuns},
+    {k:'purpleCap',l:'🟣 Purple Cap',pts:150,src:a.purpleCap},
+    {k:'secondWickets',l:'🟣 2nd Highest Wickets',pts:100,src:a.secondWickets},
+    {k:'manOfSeries',l:'⭐ Man of the Series',pts:200,src:a.manOfSeries},
+    {k:'emergingPlayer',l:'🌟 Emerging Player of Season',pts:100,src:a.emergingPlayer},
+    {k:'mostGreenDots',l:'🟢 Most Green Dot Balls',pts:100,src:a.mostGreenDots},
+    {k:'bestCatch',l:'🤿 Best Catch of Season',pts:100,src:a.bestCatch},
     {k:'mostSixes',l:'💥 Most Sixes',pts:100,src:a.mostSixes},
     {k:'mostFours',l:'🔷 Most Fours',pts:100,src:a.mostFours},
   ];
@@ -2519,7 +2515,7 @@ function updateAwardPts(key, basePts){
 async function saveAwards(){
   if(!checkAdmin('save awards')) return;
   if(!S.awards.multipliers) S.awards.multipliers={};
-  ['orangeCap','secondRuns','purpleCap','secondWickets','manOfSeries','mostSixes','mostFours'].forEach(k=>{
+  ['orangeCap','secondRuns','purpleCap','secondWickets','manOfSeries','emergingPlayer','mostGreenDots','bestCatch','mostSixes','mostFours'].forEach(k=>{
     S.awards[k]=document.getElementById(`aw-${k}`)?.value||null;
     S.awards.multipliers[k]=document.getElementById(`am-${k}`)?.value||'none';
   });
