@@ -417,21 +417,29 @@ function scoreFielding(f){
   return{pts,bd};
 }
 
-function applyRole(pts, isC, isVC){
+function applyRole(pts, isC, isVC, isSuperSub=false){
+  if(isSuperSub){
+    if(isC) return Math.round(pts*4);   // Super Sub Captain = 4x
+    if(isVC) return Math.round(pts*3.5); // Super Sub VC = 3.5x
+    return Math.round(pts*3);            // Super Sub Normal = 3x
+  }
   if(isC) return Math.round(pts*2);
   if(isVC) return Math.round(pts*1.5);
   return pts;
 }
 
-function calcPlayerTotal(pdata, isC=false, isVC=false){
+function calcPlayerTotal(pdata, isC=false, isVC=false, isSuperSub=false){
   let base=0; const bd=[];
   if(pdata.batting){const r=scoreBatting(pdata.batting);base+=r.pts;bd.push(...r.bd);}
   if(pdata.bowling){const r=scoreBowling(pdata.bowling);base+=r.pts;bd.push(...r.bd);}
   if(pdata.fielding){const r=scoreFielding(pdata.fielding);base+=r.pts;bd.push(...r.bd);}
-  const final=applyRole(base,isC,isVC);
+  const final=applyRole(base,isC,isVC,isSuperSub);
   const bonus=final-base;
   if(bonus>0){
-    if(isC) bd.push({l:'Captain ×2',p:bonus,c:'role'});
+    if(isSuperSub&&isC) bd.push({l:'⚡ Super Sub Captain ×4',p:bonus,c:'super'});
+    else if(isSuperSub&&isVC) bd.push({l:'⚡ Super Sub VC ×3.5',p:bonus,c:'super'});
+    else if(isSuperSub) bd.push({l:'⚡ Super Sub ×3',p:bonus,c:'super'});
+    else if(isC) bd.push({l:'Captain ×2',p:bonus,c:'role'});
     else if(isVC) bd.push({l:'VC ×1.5',p:bonus,c:'role'});
   }
   return{pts:final,bd};
@@ -439,6 +447,10 @@ function calcPlayerTotal(pdata, isC=false, isVC=false){
 
 function processTeamMatch(team, sc, matchId){
   let total=0; const players=[];
+  // Get super sub for this team in this match
+  const match=S.matches.find(m=>m.id===matchId);
+  const superSubName=match?.superSubs?.[team.id]||null;
+
   for(const rp of team.players){
     const bat = findPlayerInScorecard(rp.name, sc.batting);
     const bowl = findPlayerInScorecard(rp.name, sc.bowling);
@@ -450,9 +462,10 @@ function processTeamMatch(team, sc, matchId){
     if(field) pd.fielding=field;
     const isC=team.currentCaptain===rp.name;
     const isVC=team.currentVc===rp.name;
-    const{pts,bd}=calcPlayerTotal(pd,isC,isVC);
+    const isSuperSub=!!superSubName && rp.name.toLowerCase()===superSubName.toLowerCase();
+    const{pts,bd}=calcPlayerTotal(pd,isC,isVC,isSuperSub);
     total+=pts;
-    players.push({name:rp.name,isC,isVC,pts,bd});
+    players.push({name:rp.name,isC,isVC,isSuperSub,pts,bd});
   }
   const mom=sc.match?.mom;
   if(mom){
@@ -461,14 +474,14 @@ function processTeamMatch(team, sc, matchId){
       const mt=sc._matchType||'league';
       const mp=mt==='final'?100:mt==='semifinal'?75:50;
       total+=mp;
-      players.push({name:mom,isC:false,isVC:false,pts:mp,bd:[{l:`MOM (${mt})`,p:mp,c:'bonus'}]});
+      players.push({name:mom,isC:false,isVC:false,isSuperSub:false,pts:mp,bd:[{l:`MOM (${mt})`,p:mp,c:'bonus'}]});
     }
   }
   const pred=team.predictions?.[matchId];
   if(pred && pred.prediction && pred.correct!==undefined){
     const pp=pred.correct?30:-20;
     total+=pp;
-    players.push({name:'Prediction',isC:false,isVC:false,pts:pp,bd:[{l:pred.correct?'Correct prediction':'Wrong prediction',p:pp,c:'pred'}]});
+    players.push({name:'Prediction',isC:false,isVC:false,isSuperSub:false,pts:pp,bd:[{l:pred.correct?'Correct prediction':'Wrong prediction',p:pp,c:'pred'}]});
   }
   return{total,players};
 }
@@ -619,8 +632,8 @@ function playerBD(players){
   if(!players.length) return '<p class="muted small">No data</p>';
   return`<table><thead><tr><th>Player</th><th>Breakdown</th><th>Pts</th></tr></thead><tbody>
     ${players.map(p=>`<tr>
-      <td>${p.name}${p.isC?' <span class="badge b-gold">C</span>':''}${p.isVC?' <span class="badge b-blue">VC</span>':''}</td>
-      <td class="xs muted" style="max-width:320px">${(p.bd||[]).map(b=>`<span style="color:${b.p<0?'var(--red)':b.p===0?'var(--text3)':'var(--text2)'}">${b.l}(${b.p>0?'+':''}${b.p})</span>`).join(' · ')}</td>
+      <td>${p.name}${p.isC?' <span class="badge b-gold">C</span>':''}${p.isVC?' <span class="badge b-blue">VC</span>':''}${p.isSuperSub?' <span class="badge b-orange" style="background:rgba(249,115,22,0.25);color:#fb923c">⚡SS</span>':''}</td>
+      <td class="xs muted" style="max-width:320px">${(p.bd||[]).map(b=>`<span style="color:${b.p<0?'var(--red)':b.c==='super'?'var(--orange)':b.p===0?'var(--text3)':'var(--text2)'}">${b.l}(${b.p>0?'+':''}${b.p})</span>`).join(' · ')}</td>
       <td class="${p.pts>=0?'pos':'neg'}" style="font-weight:600">${p.pts>0?'+':''}${p.pts}</td>
     </tr>`).join('')}
   </tbody></table>`;
@@ -738,15 +751,19 @@ function vAddMenu(){
   ${upcoming.length?`<div class="card mb12">
     <h2>⏳ Upcoming — Awaiting Scorecard</h2>
     <div class="tscroll"><table>
-      <thead><tr><th>Match</th><th>Date</th><th>Type</th><th>Predictions</th><th></th></tr></thead>
+      <thead><tr><th>Match</th><th>Date</th><th>Type</th><th>Predictions</th><th>Super Subs</th><th></th></tr></thead>
       <tbody>${upcoming.map(m=>{
         const predCount=S.teams.filter(t=>t.predictions?.[m.id]).length;
+        const ssCount=Object.keys(m.superSubs||{}).length;
+        const isLeague=(m.type||'league')==='league';
         return`<tr>
           <td style="font-weight:600">${m.name}</td>
           <td class="muted">${m.date||'—'}</td>
           <td><span class="badge b-blue">${m.type||'League'}</span></td>
           <td><span class="badge b-green">${predCount}/${S.teams.length} submitted</span></td>
+          <td>${isLeague?`<span class="badge b-orange">${ssCount}/${S.teams.length} set</span>`:'<span class="muted small">N/A</span>'}</td>
           <td class="fc g6">
+            ${isLeague&&isAdmin?`<button class="btn btn-secondary btn-sm" onclick="showSuperSubModal('${m.id}')">⚡ Super Subs</button>`:''}
             <button class="btn btn-primary btn-sm" onclick="addView='scorecard';scorecardMatchId='${m.id}';render()">📤 Upload Scorecard</button>
             <button class="btn btn-danger btn-xs" onclick="delMatch('${m.id}')">Delete</button>
           </td>
@@ -1541,6 +1558,9 @@ function stab(tab,btn){
 function teamMatchCfg(t){
   const winner=document.getElementById('ewinner')?.value||pendingSC?.match?.winner||'';
   const autoWin=t.iplTeam&&winner&&t.iplTeam.toLowerCase()===winner.toLowerCase();
+  const match=S.matches.find(m=>m.id===scorecardMatchId);
+  const superSubName=match?.superSubs?.[t.id]||null;
+  const ssUsed=(t.superSubsUsed||0);
   return`<div class="panel mb12">
     <div class="fb mb8">
       <div>
@@ -1552,8 +1572,10 @@ function teamMatchCfg(t){
         <span class="badge b-gold">C: ${t.currentCaptain||'—'}</span>
         <span class="badge b-blue">VC: ${t.currentVc||'—'}</span>
         ${autoWin?`<span class="badge b-green">🏆 +75 auto</span>`:''}
+        ${superSubName?`<span class="badge b-orange">⚡ SS: ${superSubName}</span>`:'<span class="badge b-gray">No SS</span>'}
       </div>
     </div>
+    ${superSubName?`<div class="alert al-warn mb8 small">⚡ <strong>Super Sub active</strong> for ${superSubName} — ${t.currentCaptain===superSubName?'Captain ×4':t.currentVc===superSubName?'VC ×3.5':'Normal ×3'}</div>`:''}
     <div class="fc g16">
       <label class="fc g6" style="cursor:pointer"><input type="checkbox" id="mab-${t.id}" style="width:auto" /> Abandoned +40</label>
     </div>
@@ -1728,6 +1750,86 @@ async function submitMatch(){
   await saveS();
   nav('matches');
   alert(`✅ Scores saved for "${matchRec.name}"! C: used each team's current captain.`);
+}
+
+// ═══════════════════════════════════════════
+// SUPER SUB
+// ═══════════════════════════════════════════
+function showSuperSubModal(matchId){
+  if(!checkAdmin('set super subs')) return;
+  const m=S.matches.find(x=>x.id===matchId);
+  if(!m) return;
+  if((m.type||'league')!=='league'){alert('Super Sub is only available for League stage matches.');return;}
+  if(!m.superSubs) m.superSubs={};
+
+  const rows=S.teams.map(t=>{
+    const ssUsed=t.superSubsUsed||0;
+    const currentSS=m.superSubs[t.id]||'';
+    const canUse=ssUsed<2||currentSS; // can edit if already set for this match
+    return`<tr>
+      <td style="font-weight:600">${t.name}<br><span class="muted small">${t.owner||''}</span></td>
+      <td><span class="badge ${ssUsed>=2?'b-red':'b-gray'}">${ssUsed}/2 used</span></td>
+      <td>
+        ${canUse||!currentSS?`<select id="ss-${t.id}" style="width:160px">
+          <option value="">— None —</option>
+          ${t.players.map(p=>`<option value="${p.name}" ${p.name===currentSS?'selected':''}>${p.name}${p.name===t.currentCaptain?' (C)':p.name===t.currentVc?' (VC)':''}</option>`).join('')}
+        </select>`:`<span class="badge b-orange">⚡ ${currentSS}</span>`}
+      </td>
+      <td class="muted small">${currentSS?`Active: <strong>${currentSS}</strong>
+        ${t.currentCaptain===currentSS?'C →×4':t.currentVc===currentSS?'VC →×3.5':'→×3'}`:'—'}
+      </td>
+    </tr>`;
+  }).join('');
+
+  addModal('supersub-modal',`<div class="mhead"><h2>⚡ Super Subs — ${m.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('supersub-modal')">✕</button></div>
+  <div class="alert al-info mb12 small">Each team gets <strong>2 Super Sub uses</strong> for the whole season (league stage only).
+    Super Sub: Normal ×3 · VC ×3.5 · Captain ×4. Set before match starts.</div>
+  <div class="tscroll"><table>
+    <thead><tr><th>Team</th><th>Season Uses</th><th>Super Sub Player</th><th>Effect</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>
+  <div class="mt12 fc g8">
+    <button class="btn btn-primary" onclick="saveSuperSubs('${matchId}')">💾 Save Super Subs</button>
+    <button class="btn btn-ghost" onclick="closeModal('supersub-modal')">Cancel</button>
+  </div>`);
+}
+
+async function saveSuperSubs(matchId){
+  if(!checkAdmin('save super subs')) return;
+  const m=S.matches.find(x=>x.id===matchId);
+  if(!m) return;
+  if(!m.superSubs) m.superSubs={};
+
+  for(const t of S.teams){
+    const sel=document.getElementById(`ss-${t.id}`);
+    if(!sel) continue;
+    const newSS=sel.value||'';
+    const oldSS=m.superSubs[t.id]||'';
+
+    if(newSS===oldSS) continue; // no change
+
+    if(newSS && !oldSS){
+      // Using a super sub — check if team has uses left
+      if(!t.superSubsUsed) t.superSubsUsed=0;
+      if(t.superSubsUsed>=2){
+        alert(`${t.name} has already used both Super Subs this season.`);
+        continue;
+      }
+      m.superSubs[t.id]=newSS;
+      t.superSubsUsed=(t.superSubsUsed||0)+1;
+    } else if(!newSS && oldSS){
+      // Removing a super sub — refund the use
+      delete m.superSubs[t.id];
+      if(t.superSubsUsed>0) t.superSubsUsed--;
+    } else if(newSS && oldSS){
+      // Changing which player is super sub — no extra cost
+      m.superSubs[t.id]=newSS;
+    }
+  }
+  await saveS();
+  closeModal('supersub-modal');
+  render();
+  alert('✅ Super Subs saved!');
 }
 
 let squadViewTeam = null; // currently selected fantasy team id in squad view
@@ -2030,6 +2132,7 @@ function teamCard(t){
       ${['Batsman','All-rounder','Wicket-keeper','Bowler'].map(r=>`<span class="badge ${f[r]===FORMATION[r]?'b-green':'b-red'}">${r.slice(0,3)}: ${f[r]||0}/${FORMATION[r]}</span>`).join('')}
       <span class="badge b-gray xs">Squad: ${mySquad.length} · XI: ${t.players.length}/11</span>
       <span class="badge b-gray xs">Swaps P:${25-(sw.player||0)} C:${7-(sw.captain||0)} VC:${7-(sw.vc||0)}</span>
+      <span class="badge b-orange xs">⚡ SS: ${2-(t.superSubsUsed||0)}/2 left</span>
     </div>
     ${formErrors.length&&t.players.length===11?`<div class="alert al-warn mb8 small">⚠️ Formation: ${formErrors.join(' · ')}</div>`:''}
     ${!seasonStarted&&t.players.length<11?`<div class="alert al-warn mb8 small">⚠️ XI incomplete (${t.players.length}/11). Use "Pick XI" to select from squad.</div>`:''}
