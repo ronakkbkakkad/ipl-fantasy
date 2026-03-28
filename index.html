@@ -263,6 +263,7 @@ function adminLogout() {
 
 let S = null;
 let curView = 'leaderboard';
+let _pxiTid = null; // current Pick XI team id
 let pendingSC = null;
 let uploadImg1 = null, uploadImg2 = null, uploadType1 = null, uploadType2 = null;
 
@@ -1910,7 +1911,7 @@ function vSquad(){
         Import xlsx <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importSquadXlsx(this,'${selTeam.id}')" />
       </label>
       <button class="btn btn-ghost btn-sm" onclick="exportSquadTemplate()">Template</button>
-      ${selTeam&&mySquad.length?`<button class="btn btn-secondary btn-sm" style="border-color:var(--orange);color:var(--orange)" onclick="showPickXI('${selTeam.id}')">Pick Playing XI →</button>`:''}
+      ${isAdmin&&selTeam&&mySquad.length?`<button class="btn btn-secondary btn-sm" style="border-color:var(--orange);color:var(--orange)" onclick="showPickXI('${selTeam.id}')">Pick Playing XI →</button>`:''}
     </div>`:''}
   </div>
 
@@ -1948,7 +1949,7 @@ function vSquad(){
       const xiIncomplete=selTeam.players.length<11;
       const alerts=[];
       if(noRole>0) alerts.push(`<div class="alert al-warn small mb8">⚠️ <strong>${noRole} player${noRole>1?'s':''} have no role.</strong> Click ✏️ on each row to assign Batsman / Bowler / All-rounder / Wicket-keeper before picking XI.</div>`);
-      if(xiIncomplete&&mySquad.length>=11&&noRole===0) alerts.push(`<div class="alert al-info small mb8">Your XI is incomplete (${selTeam.players.length}/11). <button class="btn btn-primary btn-sm" onclick="showPickXI('${selTeam.id}')">Pick XI Now →</button></div>`);
+      if(isAdmin&&xiIncomplete&&mySquad.length>=11&&noRole===0) alerts.push(`<div class="alert al-info small mb8">Your XI is incomplete (${selTeam.players.length}/11). <button class="btn btn-primary btn-sm" onclick="showPickXI('${selTeam.id}')">Pick XI Now →</button></div>`);
       if(!selTeam.iplTeam) alerts.push(`<div class="alert al-warn small mb8">Set IPL team for auto win bonus. <button class="btn btn-secondary btn-xs" onclick="showEditIplTeam('${selTeam.id}')">Set Now</button></div>`);
       return alerts.join('');
     })()}
@@ -2315,7 +2316,7 @@ function teamCard(t){
       </div>
       <div class="fc g8">
         <span class="hl" style="font-weight:700">${tot} pts</span>
-        ${!seasonStarted&&mySquad.length?`<button class="btn btn-secondary btn-sm" onclick="showPickXI('${t.id}')">${t.players.length===11?'✏️ Edit XI':'🎯 Pick XI'}</button>`:''}
+        ${isAdmin&&!seasonStarted&&mySquad.length?`<button class="btn btn-secondary btn-sm" onclick="showPickXI('${t.id}')">${t.players.length===11?'✏️ Edit XI':'🎯 Pick XI'}</button>`:''}
         ${isAdmin&&!seasonStarted?`<button class="btn btn-ghost btn-sm" onclick="showEditIplTeam('${t.id}')">✏️ IPL</button>`:''}
         <button class="btn btn-danger btn-sm" onclick="delTeam('${t.id}')">Delete</button>
       </div>
@@ -2370,6 +2371,7 @@ async function saveIplTeam(tid){
 
 function showPickXI(tid){
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
+  _pxiTid=tid;
   const mySquad=(S.squad||[]).filter(p=>p.ownerTeam===t.name);
   if(!mySquad.length){alert('No squad players found for this team. Import squad first in the Squad tab.');return;}
 
@@ -2377,28 +2379,42 @@ function showPickXI(tid){
   const grouped={};roles.forEach(r=>grouped[r]=[]);
   mySquad.forEach(p=>{if(grouped[p.role])grouped[p.role].push(p);});
 
-  const currentNames=new Set(t.players.map(p=>p.name));
-  // Track what role each player was assigned in XI (for flex players)
-  const xiRoleMap={};
-  t.players.forEach(p=>{xiRoleMap[p.name]=p.role;});
+  const currentXI={};
+  t.players.forEach(p=>{currentXI[p.name]=p.role;});
 
-  const flexOptions=(role,pname)=>{
-    const assigned=xiRoleMap[pname]||role;
-    if(role==='All-rounder'){
-      return`<select class="pxi-playas" data-name="${pname}" data-orig="${role}" onchange="updatePickXIStatus('${tid}')" style="width:auto;font-size:11px;padding:3px 6px">
-        <option value="All-rounder" ${assigned==='All-rounder'?'selected':''}>All-rounder</option>
-        <option value="Batsman" ${assigned==='Batsman'?'selected':''}>as Batsman</option>
-        <option value="Bowler" ${assigned==='Bowler'?'selected':''}>as Bowler</option>
-      </select>`;
-    }
-    if(role==='Wicket-keeper'){
-      return`<select class="pxi-playas" data-name="${pname}" data-orig="${role}" onchange="updatePickXIStatus('${tid}')" style="width:auto;font-size:11px;padding:3px 6px">
-        <option value="Wicket-keeper" ${assigned==='Wicket-keeper'?'selected':''}>Wicket-keeper</option>
-        <option value="Batsman" ${assigned==='Batsman'?'selected':''}>as Batsman</option>
-      </select>`;
-    }
-    return`<span class="badge ${role==='Batsman'?'b-blue':'b-purple'}" style="font-size:10px">${role}</span>`;
-  };
+  let tableRows='';
+  roles.forEach(role=>{
+    if(!grouped[role].length) return;
+    const roleLabel=role==='Batsman'?'🏏 Batsmen':role==='Bowler'?'⚡ Bowlers':role==='All-rounder'?'🔄 All-rounders':'🧤 Wicket-keepers';
+    const slotNote=role==='All-rounder'?' — can play as BAT/BOWL':role==='Wicket-keeper'?' — can play as BAT':'';
+    tableRows+=`<tr style="background:var(--bg2)"><td colspan="5" style="font-weight:700;font-size:13px;padding:8px 12px">${roleLabel} (need ${FORMATION[role]})${slotNote}</td></tr>`;
+    grouped[role].forEach(p=>{
+      const checked=!!currentXI[p.name];
+      const assignedRole=currentXI[p.name]||role;
+      let playAsCol='';
+      if(role==='All-rounder'){
+        playAsCol=`<select class="pxi-playas" data-pname="${encodeURIComponent(p.name)}" style="width:auto;font-size:11px;padding:3px 6px">
+          <option value="All-rounder" ${assignedRole==='All-rounder'?'selected':''}>All-rounder</option>
+          <option value="Batsman" ${assignedRole==='Batsman'?'selected':''}>as Batsman</option>
+          <option value="Bowler" ${assignedRole==='Bowler'?'selected':''}>as Bowler</option>
+        </select>`;
+      } else if(role==='Wicket-keeper'){
+        playAsCol=`<select class="pxi-playas" data-pname="${encodeURIComponent(p.name)}" style="width:auto;font-size:11px;padding:3px 6px">
+          <option value="Wicket-keeper" ${assignedRole==='Wicket-keeper'?'selected':''}>Wicket-keeper</option>
+          <option value="Batsman" ${assignedRole==='Batsman'?'selected':''}>as Batsman</option>
+        </select>`;
+      } else {
+        playAsCol=`<span class="badge ${role==='Batsman'?'b-blue':'b-purple'}" style="font-size:10px">${role}</span>`;
+      }
+      tableRows+=`<tr>
+        <td><input type="checkbox" class="pxi-cb" data-pname="${encodeURIComponent(p.name)}" data-role="${role}" data-os="${p.isOverseas?'1':'0'}" ${checked?'checked':''} /></td>
+        <td style="font-weight:600">${p.name}</td>
+        <td><span class="badge b-blue" style="font-size:10px">${p.iplTeam||'—'}</span></td>
+        <td>${playAsCol}</td>
+        <td>${p.isOverseas?'<span class="badge b-red" style="font-size:10px">🌍</span>':'<span class="muted small">IND</span>'}</td>
+      </tr>`;
+    });
+  });
 
   addModal('pick-xi-modal',`
   <div class="mhead"><h2>Pick XI — ${t.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('pick-xi-modal')">✕</button></div>
@@ -2410,119 +2426,101 @@ function showPickXI(tid){
   <div class="tscroll" style="max-height:55vh;overflow-y:auto">
     <table>
       <thead><tr><th style="width:36px">✓</th><th>Player</th><th>IPL</th><th>Play as</th><th>OS</th></tr></thead>
-      <tbody>
-      ${roles.map(role=>{
-        if(!grouped[role].length) return'';
-        const roleLabel=role==='Batsman'?'🏏 Batsmen':role==='Bowler'?'⚡ Bowlers':role==='All-rounder'?'🔄 All-rounders':'🧤 Wicket-keepers';
-        const slotNote=role==='All-rounder'?' — can play as BAT/BOWL':role==='Wicket-keeper'?' — can play as BAT':'';
-        return`<tr style="background:var(--bg2)"><td colspan="5" style="font-weight:700;font-size:13px;padding:8px 12px">${roleLabel} (need ${FORMATION[role]})${slotNote}</td></tr>
-        ${grouped[role].map(p=>{
-          const checked=currentNames.has(p.name);
-          return`<tr>
-            <td><input type="checkbox" class="pxi-cb" data-name="${p.name}" data-role="${p.role}" data-os="${p.isOverseas?'1':'0'}" ${checked?'checked':''} onchange="updatePickXIStatus('${tid}')" /></td>
-            <td style="font-weight:600">${p.name}</td>
-            <td><span class="badge b-blue" style="font-size:10px">${p.iplTeam||'—'}</span></td>
-            <td>${flexOptions(p.role,p.name)}</td>
-            <td>${p.isOverseas?'<span class="badge b-red" style="font-size:10px">🌍</span>':'<span class="muted small">IND</span>'}</td>
-          </tr>`;
-        }).join('')}`;
-      }).join('')}
-      </tbody>
+      <tbody>${tableRows}</tbody>
     </table>
   </div>
   <div class="sep"></div>
   <div class="fr mb12">
     <div class="fg"><label>Captain</label>
-      <select id="pxi-captain" style="width:100%">
-        <option value="">— Select Captain —</option>
-      </select>
+      <select id="pxi-captain" style="width:100%"><option value="">— Select Captain —</option></select>
     </div>
     <div class="fg"><label>Vice-Captain</label>
-      <select id="pxi-vc" style="width:100%">
-        <option value="">— Select VC —</option>
-      </select>
+      <select id="pxi-vc" style="width:100%"><option value="">— Select VC —</option></select>
     </div>
   </div>
-  <div id="pxi-errors"></div>
-  <button class="btn btn-primary" id="pxi-save-btn" onclick="savePickXI('${tid}')" disabled>Save Playing XI</button>
+  <button class="btn btn-primary" id="pxi-save-btn" onclick="pxiSave()" disabled>Save Playing XI</button>
   `);
-  updatePickXIStatus(tid);
+  // Set up event delegation on modal + initial status update
+  setTimeout(()=>{
+    const modal=document.getElementById('pick-xi-modal');
+    if(!modal) return;
+    modal.addEventListener('change', pxiUpdate);
+    modal.addEventListener('click', e=>{
+      if(e.target.type==='checkbox'&&e.target.classList.contains('pxi-cb')) setTimeout(pxiUpdate,10);
+    });
+    pxiUpdate();
+  },100);
 }
 
-function getPickXISelections(){
-  const cbs=document.querySelectorAll('.pxi-cb');
+function pxiUpdate(){
+  const modal=document.getElementById('pick-xi-modal');
+  if(!modal) return;
+  const t=S.teams.find(x=>x.id===_pxiTid);
+  const cbs=modal.querySelectorAll('.pxi-cb');
   const selected=[];let osCount=0;
   cbs.forEach(cb=>{
     if(cb.checked){
-      const name=cb.dataset.name;
+      const name=decodeURIComponent(cb.dataset.pname);
       const origRole=cb.dataset.role;
-      // Check if there's a play-as dropdown for this player
-      const playas=document.querySelector(`.pxi-playas[data-name="${name}"]`);
+      const playas=modal.querySelector('.pxi-playas[data-pname="'+cb.dataset.pname+'"]');
       const role=playas?playas.value:origRole;
       selected.push({name,role,origRole,os:cb.dataset.os==='1'});
       if(cb.dataset.os==='1') osCount++;
     }
   });
-  return{selected,osCount};
-}
-
-function updatePickXIStatus(tid){
-  const{selected,osCount}=getPickXISelections();
   const count=selected.length;
-
-  // Update status bar
-  const statusEl=document.getElementById('pxi-status');
+  // Status bar
+  const statusEl=modal.querySelector('#pxi-status');
   if(statusEl){
     const cls=count===11?'al-success':count>11?'al-danger':'al-warn';
-    let msg=`Selected: ${count}/11 · Overseas: ${osCount}/${MAX_OVERSEAS}`;
-    if(osCount>MAX_OVERSEAS) msg+=` · ⚠️ Too many overseas!`;
+    let msg='Selected: '+count+'/11 · Overseas: '+osCount+'/'+MAX_OVERSEAS;
+    if(osCount>MAX_OVERSEAS) msg+=' · ⚠️ Too many overseas!';
     if(count===11){
       const errs=validateFormation(selected.map(s=>({name:s.name,role:s.role})));
-      if(errs.length) msg+=` · ⚠️ ${errs.join(' · ')}`;
+      if(errs.length) msg+=' · ⚠️ '+errs.join(' · ');
       else msg+=' · ✅ Formation valid';
     }
-    // Show role slot summary
     const slots={Batsman:0,Bowler:0,'All-rounder':0,'Wicket-keeper':0};
     selected.forEach(s=>{if(slots[s.role]!==undefined)slots[s.role]++;});
-    msg+=`<br/>Slots — BAT:${slots['Batsman']}/${FORMATION['Batsman']} · BOWL:${slots['Bowler']}/${FORMATION['Bowler']} · AR:${slots['All-rounder']}/${FORMATION['All-rounder']} · WK:${slots['Wicket-keeper']}/${FORMATION['Wicket-keeper']}`;
-    statusEl.className=`alert ${cls} mb12 small`;
+    msg+='<br/>Slots — BAT:'+slots['Batsman']+'/'+FORMATION['Batsman']+' · BOWL:'+slots['Bowler']+'/'+FORMATION['Bowler']+' · AR:'+slots['All-rounder']+'/'+FORMATION['All-rounder']+' · WK:'+slots['Wicket-keeper']+'/'+FORMATION['Wicket-keeper'];
+    statusEl.className='alert '+cls+' mb12 small';
     statusEl.innerHTML=msg;
   }
-
-  // Update C/VC dropdowns
-  const capSel=document.getElementById('pxi-captain');
-  const vcSel=document.getElementById('pxi-vc');
-  const t=S.teams.find(x=>x.id===tid);
+  // C/VC dropdowns
+  const capSel=modal.querySelector('#pxi-captain');
+  const vcSel=modal.querySelector('#pxi-vc');
   if(capSel){
     const curCap=capSel.value||t?.currentCaptain||'';
-    capSel.innerHTML=`<option value="">— Select Captain —</option>${selected.map(s=>`<option value="${s.name}" ${s.name===curCap?'selected':''}>${s.name}</option>`).join('')}`;
+    capSel.innerHTML='<option value="">— Select Captain —</option>'+selected.map(s=>'<option value="'+s.name+'"'+(s.name===curCap?' selected':'')+'>'+s.name+'</option>').join('');
   }
   if(vcSel){
     const curVC=vcSel.value||t?.currentVc||'';
-    vcSel.innerHTML=`<option value="">— Select VC —</option>${selected.map(s=>`<option value="${s.name}" ${s.name===curVC?'selected':''}>${s.name}</option>`).join('')}`;
+    vcSel.innerHTML='<option value="">— Select VC —</option>'+selected.map(s=>'<option value="'+s.name+'"'+(s.name===curVC?' selected':'')+'>'+s.name+'</option>').join('');
   }
-
-  // Enable/disable save
-  const btn=document.getElementById('pxi-save-btn');
+  // Save button
+  const btn=modal.querySelector('#pxi-save-btn');
   if(btn) btn.disabled=(count!==11);
+  // Store selections for save
+  window._pxiSelected=selected;
+  window._pxiOsCount=osCount;
 }
 
-async function savePickXI(tid){
+async function pxiSave(){
   if(!checkAdmin('save XI')) return;
-  const t=S.teams.find(x=>x.id===tid);if(!t)return;
-  const{selected,osCount}=getPickXISelections();
+  const t=S.teams.find(x=>x.id===_pxiTid);if(!t)return;
+  const selected=window._pxiSelected||[];
+  const osCount=window._pxiOsCount||0;
   if(selected.length!==11){alert('Select exactly 11 players');return;}
-  if(osCount>MAX_OVERSEAS){alert(`Max ${MAX_OVERSEAS} overseas players. You have ${osCount}.`);return;}
-  // Validate formation using assigned roles (play-as)
+  if(osCount>MAX_OVERSEAS){alert('Max '+MAX_OVERSEAS+' overseas players. You have '+osCount+'.');return;}
   const errs=validateFormation(selected.map(s=>({name:s.name,role:s.role})));
-  if(errs.length){alert(`Formation invalid:\n${errs.join('\n')}`);return;}
-  // Build players with assigned play-as roles
+  if(errs.length){alert('Formation invalid:\n'+errs.join('\n'));return;}
   t.players=selected.map(s=>{
     const sq=(S.squad||[]).find(p=>p.name===s.name&&p.ownerTeam===t.name);
     return{id:gid(),name:s.name,role:s.role,iplTeam:sq?.iplTeam||''};
   });
-  const cap=document.getElementById('pxi-captain')?.value;
-  const vc=document.getElementById('pxi-vc')?.value;
+  const modal=document.getElementById('pick-xi-modal');
+  const cap=modal?.querySelector('#pxi-captain')?.value;
+  const vc=modal?.querySelector('#pxi-vc')?.value;
   t.currentCaptain=cap||selected[0].name;
   t.currentVc=vc||(selected[1]?.name!==t.currentCaptain?selected[1]?.name:selected[2]?.name)||'';
   await saveS();closeModal('pick-xi-modal');render();
