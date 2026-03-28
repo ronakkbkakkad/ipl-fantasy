@@ -97,7 +97,9 @@ tbody tr:hover td{background:rgba(255,255,255,.015)}
 .b-gold{background:var(--gold-dim);color:var(--gold)}
 .b-purple{background:var(--purple-dim);color:var(--purple)}
 .b-gray{background:var(--bg3);color:var(--text2)}
-input,select,textarea{background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text1);padding:8px 10px;font-size:16px;width:100%;outline:none;transition:.15s;-webkit-appearance:none;appearance:none}
+input,select,textarea{background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text1);padding:8px 10px;font-size:16px;width:100%;outline:none;transition:.15s}
+input:not([type="checkbox"]):not([type="radio"]),select,textarea{-webkit-appearance:none;appearance:none}
+input[type="checkbox"]{width:18px;height:18px;accent-color:var(--orange);cursor:pointer;flex-shrink:0}
 input:focus,select:focus,textarea:focus{border-color:var(--orange)}
 input::placeholder{color:var(--text3)}
 select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%237e8fa3' d='M5 6L0 0h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
@@ -2371,35 +2373,56 @@ function showPickXI(tid){
   const mySquad=(S.squad||[]).filter(p=>p.ownerTeam===t.name);
   if(!mySquad.length){alert('No squad players found for this team. Import squad first in the Squad tab.');return;}
 
-  // Group by role for display
   const roles=['Batsman','Bowler','All-rounder','Wicket-keeper'];
   const grouped={};roles.forEach(r=>grouped[r]=[]);
-  mySquad.forEach(p=>{if(grouped[p.role])grouped[p.role].push(p);else if(!p.role)(grouped['Batsman']=grouped['Batsman']||[]).push(p);});
+  mySquad.forEach(p=>{if(grouped[p.role])grouped[p.role].push(p);});
 
   const currentNames=new Set(t.players.map(p=>p.name));
+  // Track what role each player was assigned in XI (for flex players)
+  const xiRoleMap={};
+  t.players.forEach(p=>{xiRoleMap[p.name]=p.role;});
+
+  const flexOptions=(role,pname)=>{
+    const assigned=xiRoleMap[pname]||role;
+    if(role==='All-rounder'){
+      return`<select class="pxi-playas" data-name="${pname}" data-orig="${role}" onchange="updatePickXIStatus('${tid}')" style="width:auto;font-size:11px;padding:3px 6px">
+        <option value="All-rounder" ${assigned==='All-rounder'?'selected':''}>All-rounder</option>
+        <option value="Batsman" ${assigned==='Batsman'?'selected':''}>as Batsman</option>
+        <option value="Bowler" ${assigned==='Bowler'?'selected':''}>as Bowler</option>
+      </select>`;
+    }
+    if(role==='Wicket-keeper'){
+      return`<select class="pxi-playas" data-name="${pname}" data-orig="${role}" onchange="updatePickXIStatus('${tid}')" style="width:auto;font-size:11px;padding:3px 6px">
+        <option value="Wicket-keeper" ${assigned==='Wicket-keeper'?'selected':''}>Wicket-keeper</option>
+        <option value="Batsman" ${assigned==='Batsman'?'selected':''}>as Batsman</option>
+      </select>`;
+    }
+    return`<span class="badge ${role==='Batsman'?'b-blue':'b-purple'}" style="font-size:10px">${role}</span>`;
+  };
 
   addModal('pick-xi-modal',`
   <div class="mhead"><h2>Pick XI — ${t.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('pick-xi-modal')">✕</button></div>
   <div class="alert al-info mb12 small">
     Select exactly 11 players. Formation: 4 BAT · 4 BOWL · 2 AR · 1 WK · Max 4 OS<br/>
-    AR can fill BAT/BOWL slots · WK can fill BAT slot
+    AR can fill BAT/BOWL slots · WK can fill BAT slot — use "Play as" dropdown to assign.
   </div>
   <div id="pxi-status" class="alert al-warn mb12 small">Selected: 0/11</div>
   <div class="tscroll" style="max-height:55vh;overflow-y:auto">
     <table>
-      <thead><tr><th style="width:36px">✓</th><th>Player</th><th>IPL</th><th>Role</th><th>OS</th></tr></thead>
+      <thead><tr><th style="width:36px">✓</th><th>Player</th><th>IPL</th><th>Play as</th><th>OS</th></tr></thead>
       <tbody>
       ${roles.map(role=>{
         if(!grouped[role].length) return'';
         const roleLabel=role==='Batsman'?'🏏 Batsmen':role==='Bowler'?'⚡ Bowlers':role==='All-rounder'?'🔄 All-rounders':'🧤 Wicket-keepers';
-        return`<tr style="background:var(--bg2)"><td colspan="5" style="font-weight:700;font-size:13px;padding:8px 12px">${roleLabel} (need ${FORMATION[role]})</td></tr>
+        const slotNote=role==='All-rounder'?' — can play as BAT/BOWL':role==='Wicket-keeper'?' — can play as BAT':'';
+        return`<tr style="background:var(--bg2)"><td colspan="5" style="font-weight:700;font-size:13px;padding:8px 12px">${roleLabel} (need ${FORMATION[role]})${slotNote}</td></tr>
         ${grouped[role].map(p=>{
           const checked=currentNames.has(p.name);
           return`<tr>
-            <td><input type="checkbox" class="pxi-cb" data-name="${p.name}" data-role="${p.role}" data-os="${p.isOverseas?'1':'0'}" ${checked?'checked':''} onchange="updatePickXIStatus('${tid}')" style="width:auto;cursor:pointer" /></td>
+            <td><input type="checkbox" class="pxi-cb" data-name="${p.name}" data-role="${p.role}" data-os="${p.isOverseas?'1':'0'}" ${checked?'checked':''} onchange="updatePickXIStatus('${tid}')" /></td>
             <td style="font-weight:600">${p.name}</td>
             <td><span class="badge b-blue" style="font-size:10px">${p.iplTeam||'—'}</span></td>
-            <td><span class="badge ${role==='Batsman'?'b-blue':role==='Bowler'?'b-purple':role==='All-rounder'?'b-orange':'b-green'}" style="font-size:10px">${role}</span></td>
+            <td>${flexOptions(p.role,p.name)}</td>
             <td>${p.isOverseas?'<span class="badge b-red" style="font-size:10px">🌍</span>':'<span class="muted small">IND</span>'}</td>
           </tr>`;
         }).join('')}`;
@@ -2426,15 +2449,25 @@ function showPickXI(tid){
   updatePickXIStatus(tid);
 }
 
-function updatePickXIStatus(tid){
+function getPickXISelections(){
   const cbs=document.querySelectorAll('.pxi-cb');
   const selected=[];let osCount=0;
   cbs.forEach(cb=>{
     if(cb.checked){
-      selected.push({name:cb.dataset.name,role:cb.dataset.role,os:cb.dataset.os==='1'});
+      const name=cb.dataset.name;
+      const origRole=cb.dataset.role;
+      // Check if there's a play-as dropdown for this player
+      const playas=document.querySelector(`.pxi-playas[data-name="${name}"]`);
+      const role=playas?playas.value:origRole;
+      selected.push({name,role,origRole,os:cb.dataset.os==='1'});
       if(cb.dataset.os==='1') osCount++;
     }
   });
+  return{selected,osCount};
+}
+
+function updatePickXIStatus(tid){
+  const{selected,osCount}=getPickXISelections();
   const count=selected.length;
 
   // Update status bar
@@ -2442,11 +2475,16 @@ function updatePickXIStatus(tid){
   if(statusEl){
     const cls=count===11?'al-success':count>11?'al-danger':'al-warn';
     let msg=`Selected: ${count}/11 · Overseas: ${osCount}/${MAX_OVERSEAS}`;
+    if(osCount>MAX_OVERSEAS) msg+=` · ⚠️ Too many overseas!`;
     if(count===11){
       const errs=validateFormation(selected.map(s=>({name:s.name,role:s.role})));
       if(errs.length) msg+=` · ⚠️ ${errs.join(' · ')}`;
       else msg+=' · ✅ Formation valid';
     }
+    // Show role slot summary
+    const slots={Batsman:0,Bowler:0,'All-rounder':0,'Wicket-keeper':0};
+    selected.forEach(s=>{if(slots[s.role]!==undefined)slots[s.role]++;});
+    msg+=`<br/>Slots — BAT:${slots['Batsman']}/${FORMATION['Batsman']} · BOWL:${slots['Bowler']}/${FORMATION['Bowler']} · AR:${slots['All-rounder']}/${FORMATION['All-rounder']} · WK:${slots['Wicket-keeper']}/${FORMATION['Wicket-keeper']}`;
     statusEl.className=`alert ${cls} mb12 small`;
     statusEl.innerHTML=msg;
   }
@@ -2472,23 +2510,17 @@ function updatePickXIStatus(tid){
 async function savePickXI(tid){
   if(!checkAdmin('save XI')) return;
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
-  const cbs=document.querySelectorAll('.pxi-cb');
-  const selected=[];
-  cbs.forEach(cb=>{
-    if(cb.checked){
-      const sq=(S.squad||[]).find(p=>p.name===cb.dataset.name&&p.ownerTeam===t.name);
-      selected.push({id:gid(),name:cb.dataset.name,role:cb.dataset.role,iplTeam:sq?.iplTeam||''});
-    }
-  });
+  const{selected,osCount}=getPickXISelections();
   if(selected.length!==11){alert('Select exactly 11 players');return;}
-  // Validate formation
-  const errs=validateFormation(selected);
-  if(errs.length){alert(`Formation invalid:\n${errs.join('\n')}`);return;}
-  // Overseas check
-  const osCount=selected.reduce((n,p)=>{const sq=(S.squad||[]).find(s=>s.name===p.name);return n+(sq?.isOverseas?1:0);},0);
   if(osCount>MAX_OVERSEAS){alert(`Max ${MAX_OVERSEAS} overseas players. You have ${osCount}.`);return;}
-  // Save
-  t.players=selected;
+  // Validate formation using assigned roles (play-as)
+  const errs=validateFormation(selected.map(s=>({name:s.name,role:s.role})));
+  if(errs.length){alert(`Formation invalid:\n${errs.join('\n')}`);return;}
+  // Build players with assigned play-as roles
+  t.players=selected.map(s=>{
+    const sq=(S.squad||[]).find(p=>p.name===s.name&&p.ownerTeam===t.name);
+    return{id:gid(),name:s.name,role:s.role,iplTeam:sq?.iplTeam||''};
+  });
   const cap=document.getElementById('pxi-captain')?.value;
   const vc=document.getElementById('pxi-vc')?.value;
   t.currentCaptain=cap||selected[0].name;
