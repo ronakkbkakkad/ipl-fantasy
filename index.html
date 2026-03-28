@@ -541,6 +541,11 @@ function teamTotal(team){
   }
   const wrongSwaps=(team.swaps?.history||[]).filter(s=>s.isWrong).length;
   t+=wrongSwaps*(-200);
+  // Formation penalty — wrong formation costs -200 pts
+  if(team.players.length===11){
+    const formErrs=validateFormation(team.players);
+    if(formErrs.length>0) t-=200;
+  }
   const a=S.awards;
   const mult=k=>{const r=a.multipliers?.[k]||'none';return r==='captain'?2:r==='vc'?1.5:1;};
   // Season awards — with C/VC multiplier
@@ -2163,23 +2168,74 @@ const FLEX_ROLES = {
   'Wicket-keeper': ['Batsman','Wicket-keeper']
 };
 
-function validateFormation(players) {
-  const slots = { Batsman:0, 'All-rounder':0, 'Wicket-keeper':0, Bowler:0 };
+/* Flexible formation validator.
+   AR can fill AR / BAT / BOWL slots. WK can fill WK / BAT slots.
+   Algorithm: assign most-constrained slots first, then flex remaining. */
+function solveFormation(players) {
+  const byRole = { Batsman:0, Bowler:0, 'All-rounder':0, 'Wicket-keeper':0 };
+  let os = 0;
   for (const p of players) {
-    const r = p.role;
-    if (slots[r] !== undefined) slots[r]++;
+    if (byRole[p.role] !== undefined) byRole[p.role]++;
+    const sq = (S.squad||[]).find(s => s.name === p.name);
+    if (sq?.isOverseas) os++;
   }
+  const nBat = byRole['Batsman'], nBowl = byRole['Bowler'];
+  const nAR = byRole['All-rounder'], nWK = byRole['Wicket-keeper'];
+
+  // Slots to fill
+  const need = { Batsman:FORMATION['Batsman'], Bowler:FORMATION['Bowler'],
+                 'All-rounder':FORMATION['All-rounder'], 'Wicket-keeper':FORMATION['Wicket-keeper'] };
+
+  // 1. WK slot — only WK players can fill
+  const wkForWK = Math.min(nWK, need['Wicket-keeper']);
+  const wkLeft = nWK - wkForWK; // remaining WK players (can flex to BAT)
+  const wkShort = need['Wicket-keeper'] - wkForWK;
+
+  // 2. AR slot — only AR players can fill
+  const arForAR = Math.min(nAR, need['All-rounder']);
+  const arLeft = nAR - arForAR; // remaining AR players (can flex to BAT or BOWL)
+  const arShort = need['All-rounder'] - arForAR;
+
+  // 3. BAT slot — pure BAT first, then flex WK, then flex AR
+  let batStill = need['Batsman'];
+  const batForBat = Math.min(nBat, batStill); batStill -= batForBat;
+  const wkForBat = Math.min(wkLeft, batStill); batStill -= wkForBat;
+  const wkFlex = wkLeft - wkForBat;
+  const arForBat = Math.min(arLeft, batStill); batStill -= arForBat;
+  const arAfterBat = arLeft - arForBat;
+
+  // 4. BOWL slot — pure BOWL first, then remaining flex AR
+  let bowlStill = need['Bowler'];
+  const bowlForBowl = Math.min(nBowl, bowlStill); bowlStill -= bowlForBowl;
+  const arForBowl = Math.min(arAfterBat, bowlStill); bowlStill -= arForBowl;
+
+  // Build assigned counts (how many fill each SLOT)
+  const assigned = {
+    'Wicket-keeper': wkForWK,
+    'All-rounder': arForAR,
+    Batsman: batForBat + wkForBat + arForBat,
+    Bowler: bowlForBowl + arForBowl
+  };
+
+  // Errors
   const errors = [];
-  for (const [role, needed] of Object.entries(FORMATION)) {
-    if (slots[role] !== needed) errors.push(`Need ${needed} ${role}(s), have ${slots[role]}`);
-  }
-  return errors;
+  if (wkShort > 0) errors.push(`Need ${need['Wicket-keeper']} Wicket-keeper(s), have ${nWK}`);
+  if (arShort > 0) errors.push(`Need ${need['All-rounder']} All-rounder(s), have ${nAR}`);
+  if (batStill > 0) errors.push(`Need ${need['Batsman']} in Batsman slots, can only fill ${assigned['Batsman']} (BAT/AR/WK)`);
+  if (bowlStill > 0) errors.push(`Need ${need['Bowler']} in Bowler slots, can only fill ${assigned['Bowler']} (BOWL/AR)`);
+  if (os > MAX_OVERSEAS) errors.push(`Max ${MAX_OVERSEAS} overseas, have ${os}`);
+
+  return { assigned, byRole, errors, overseas: os };
+}
+
+function validateFormation(players) {
+  return solveFormation(players).errors;
 }
 
 function formationStatus(players) {
-  const slots = { Batsman:0, 'All-rounder':0, 'Wicket-keeper':0, Bowler:0 };
-  for (const p of players) if (slots[p.role] !== undefined) slots[p.role]++;
-  return slots;
+  const s = solveFormation(players);
+  // Return assigned slot counts + overseas + raw role counts for display
+  return { ...s.assigned, _overseas: s.overseas, _raw: s.byRole };
 }
 
 function hasMatchStarted() {
@@ -2189,7 +2245,7 @@ function hasMatchStarted() {
 function vTeams(){
   if (!isAdmin) return vTeamsPublic();
   return`<div class="fb mb16"><h1>👥 Teams — Playing XI</h1><button class="btn btn-primary" onclick="showAddTeam()">+ Add Team</button></div>
-  <div class="alert al-info mb12 small">Playing XI (4 BAT · 4 BOWL · 2 AR · 1 WK) is selected from each team's squad. Go to 🏏 Squad to import players first.</div>
+  <div class="alert al-info mb12 small">Playing XI (4 BAT · 4 BOWL · 2 AR · 1 WK · Max 4 OS). AR can fill BAT/BOWL slots · WK can fill BAT slot.</div>
   ${S.teams.length===0?`<div class="empty"><div class="icon">👥</div><h2>No teams yet</h2><button class="btn btn-primary" onclick="showAddTeam()">Add First Team</button></div>`
   :S.teams.map(t=>teamCard(t)).join('')}
   <div id="mc"></div>`;
@@ -2198,7 +2254,7 @@ function vTeams(){
 function vTeamsPublic(){
   if (!S.teams.length) return '<div class="empty"><div class="icon">👥</div><h2>No teams yet</h2><p>Teams will appear here once the season is set up.</p></div>';
   return`<div class="fb mb16"><h1>👥 Team Lineups</h1></div>
-  <div class="alert al-info mb16">Formation: 4 Batsmen · 4 Bowlers · 2 All-rounders · 1 Wicket-keeper</div>
+  <div class="alert al-info mb16">Formation: 4 BAT · 4 BOWL · 2 AR · 1 WK · Max 4 OS<br/>AR can fill BAT/BOWL slots · WK can fill BAT slot</div>
   ${S.teams.map(t=>{
     const tot=teamTotal(t);
     const f=formationStatus(t.players);
@@ -2211,14 +2267,15 @@ function vTeamsPublic(){
         <span class="badge b-gold">C: ${t.currentCaptain||'—'}</span>
         <span class="badge b-blue">VC: ${t.currentVc||'—'}</span>
         ${['Batsman','All-rounder','Wicket-keeper','Bowler'].map(r=>`<span class="badge b-gray">${r.slice(0,2)}: ${f[r]||0}/${FORMATION[r]}</span>`).join('')}
+        <span class="badge ${(f._overseas||0)<=MAX_OVERSEAS?'b-green':'b-red'}">OS: ${f._overseas||0}/${MAX_OVERSEAS}</span>
       </div>
       ${t.players.length?`<div class="tscroll"><table>
         <thead><tr><th>Player</th><th>IPL Team</th><th>Role</th></tr></thead>
-        <tbody>${t.players.map(p=>`<tr>
-          <td>${p.name}${p.name===t.currentCaptain?' <span class="badge b-gold">C</span>':''}${p.name===t.currentVc?' <span class="badge b-blue">VC</span>':''}</td>
+        <tbody>${t.players.map(p=>{const sq=(S.squad||[]).find(s=>s.name===p.name);return`<tr>
+          <td>${p.name}${p.name===t.currentCaptain?' <span class="badge b-gold">C</span>':''}${p.name===t.currentVc?' <span class="badge b-blue">VC</span>':''}${sq?.isOverseas?' 🌍':''}</td>
           <td class="muted">${p.iplTeam||'—'}</td>
           <td><span class="badge ${p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':'b-green'}">${p.role||'—'}</span></td>
-        </tr>`).join('')}</tbody>
+        </tr>`;}).join('')}</tbody>
       </table></div>`:'<p class="muted small">No players</p>'}
     </div>`;
   }).join('')}`;
@@ -2250,6 +2307,7 @@ function teamCard(t){
       <span class="badge b-gold">C: ${t.currentCaptain||'None'}</span>
       <span class="badge b-blue">VC: ${t.currentVc||'None'}</span>
       ${['Batsman','All-rounder','Wicket-keeper','Bowler'].map(r=>`<span class="badge ${f[r]===FORMATION[r]?'b-green':'b-red'}">${r.slice(0,3)}: ${f[r]||0}/${FORMATION[r]}</span>`).join('')}
+      <span class="badge ${(f._overseas||0)<=MAX_OVERSEAS?'b-green':'b-red'}">OS: ${f._overseas||0}/${MAX_OVERSEAS}</span>
       <span class="badge b-gray xs">Squad: ${mySquad.length} · XI: ${t.players.length}/11</span>
       <span class="badge b-gray xs">Swaps P:${25-(sw.player||0)} C:${7-(sw.captain||0)} VC:${7-(sw.vc||0)}</span>
       <span class="badge b-orange xs">⚡ SS: ${2-(t.superSubsUsed||0)}/2 left</span>
@@ -2258,8 +2316,8 @@ function teamCard(t){
     ${!seasonStarted&&t.players.length<11?`<div class="alert al-warn mb8 small">⚠️ XI incomplete (${t.players.length}/11). Use "Pick XI" to select from squad.</div>`:''}
     ${t.players.length?`<div class="tscroll"><table>
       <thead><tr><th>Player</th><th>IPL Team</th><th>Role</th><th style="text-align:right">Actions</th></tr></thead>
-      <tbody>${t.players.map(p=>`<tr>
-        <td>${p.name}${p.name===t.currentCaptain?' <span class="badge b-gold">C</span>':''}${p.name===t.currentVc?' <span class="badge b-blue">VC</span>':''}</td>
+      <tbody>${t.players.map(p=>{const sq=(S.squad||[]).find(s=>s.name===p.name);return`<tr>
+        <td>${p.name}${p.name===t.currentCaptain?' <span class="badge b-gold">C</span>':''}${p.name===t.currentVc?' <span class="badge b-blue">VC</span>':''}${sq?.isOverseas?' 🌍':''}</td>
         <td class="muted">${p.iplTeam||'—'}</td>
         <td><span class="badge ${p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':'b-green'}">${p.role||'—'}</span></td>
         <td style="text-align:right">
@@ -2267,7 +2325,7 @@ function teamCard(t){
           <button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','vc')">VC</button>
           <button class="btn btn-danger btn-xs" onclick="removeFromXI('${t.id}','${p.name}')">✕</button>`:''}
         </td>
-      </tr>`).join('')}</tbody>
+      </tr>`;}).join('')}</tbody>
     </table></div>`:'<p class="muted small">No players in XI yet — use "Pick XI"</p>'}
   </div>`;
 }
@@ -2298,10 +2356,13 @@ function showPickXI(tid){
   const mySquad=(S.squad||[]).filter(p=>p.ownerTeam===t.name);
   if(!mySquad.length){alert('No squad players found for this team. Import squad first in the Squad tab.');return;}
   const f=formationStatus(t.players);
-  const remaining=Object.entries(FORMATION).map(([r,n])=>`${r}: ${n-(f[r]||0)} more needed`).filter(s=>!s.includes('0 more')).join(' · ')||'Formation complete ✅';
+  const raw=f._raw||{Batsman:0,Bowler:0,'All-rounder':0,'Wicket-keeper':0};
+  const roleSummary=['Batsman','Bowler','All-rounder','Wicket-keeper'].map(r=>`${r.slice(0,3)}: ${raw[r]||0}`).join(' · ');
+  const errs=t.players.length===11?validateFormation(t.players):[];
+  const statusMsg=t.players.length===11?(errs.length?`⚠️ ${errs.join(' · ')}`:'Formation valid ✅'):`${t.players.length}/11 selected · ${roleSummary}`;
 
   addModal('pick-xi-modal',`<div class="mhead"><h2>Pick XI — ${t.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('pick-xi-modal')">✕</button></div>
-  <div class="alert al-info mb12 small">Formation needed: 4 BAT · 4 BOWL · 2 AR · 1 WK · ${remaining}</div>
+  <div class="alert al-info mb12 small">Slots: 4 BAT · 4 BOWL · 2 AR · 1 WK · Max 4 OS<br/>AR can fill BAT/BOWL slots · WK can fill BAT slot<br/>${statusMsg}</div>
   <div class="fg"><label>Add Player to XI</label>
     <select id="pxi-player">
       <option value="">— Select player from squad —</option>
@@ -2334,9 +2395,16 @@ async function addToXI(tid){
   if(t.players.length>=11){alert('XI already has 11 players. Remove one first.');return;}
   const sqPlayer=(S.squad||[]).find(p=>p.name===name&&p.ownerTeam===t.name);
   if(!sqPlayer){alert('Player not found in squad');return;}
-  const f=formationStatus(t.players);
-  if((f[sqPlayer.role]||0)>=FORMATION[sqPlayer.role]){
-    alert(`Formation slot full for ${sqPlayer.role} (max ${FORMATION[sqPlayer.role]}). Remove a ${sqPlayer.role} first.`);return;
+  // Overseas check
+  if(sqPlayer.isOverseas){
+    const curOS=t.players.reduce((n,p)=>{const sq=(S.squad||[]).find(s=>s.name===p.name);return n+(sq?.isOverseas?1:0);},0);
+    if(curOS>=MAX_OVERSEAS){alert(`Max ${MAX_OVERSEAS} overseas players allowed.`);return;}
+  }
+  // Flexible formation check — simulate adding and validate
+  const tempPlayers=[...t.players,{name:sqPlayer.name,role:sqPlayer.role}];
+  if(tempPlayers.length===11){
+    const errs=validateFormation(tempPlayers);
+    if(errs.length){alert(`Formation invalid:\n${errs.join('\n')}`);return;}
   }
   t.players.push({id:gid(),name:sqPlayer.name,iplTeam:sqPlayer.iplTeam,role:sqPlayer.role});
   if(isCap||!t.currentCaptain) t.currentCaptain=name;
@@ -2477,14 +2545,14 @@ function showSwapModal(tid){
       <div class="fg">
         <label>Player Out (from Playing XI)</label>
         <select id="sw-from">
-          ${t.players.map(p=>`<option value="${p.name}">${p.name} (${p.role||'?'}) — ${playerSwapCount[p.name]||0} prev swaps</option>`).join('')}
+          ${t.players.map(p=>{const sq=(S.squad||[]).find(s=>s.name===p.name);return`<option value="${p.name}">${p.name} (${p.role||'?'}) ${sq?.isOverseas?'🌍':''} — ${playerSwapCount[p.name]||0} prev swaps</option>`;}).join('')}
         </select>
       </div>
       <div class="fg">
         <label>Player In (from Squad)</label>
         <select id="sw-to-select">
           <option value="">— Select —</option>
-          ${available.map(p=>`<option value="${p.name}">${p.name} (${p.role||'?'}) · ${p.iplTeam||'?'}</option>`).join('')}
+          ${available.map(p=>`<option value="${p.name}">${p.name} (${p.role||'?'}) · ${p.iplTeam||'?'} ${p.isOverseas?'🌍':''}</option>`).join('')}
         </select>
         ${available.length===0?'<p class="muted small mt4">All squad players are in XI.</p>':''}
       </div>
