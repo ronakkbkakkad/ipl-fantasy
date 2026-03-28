@@ -660,7 +660,7 @@ function matchCard(m){
   return`<div class="card" id="m-${m.id}">
     <div class="fb mb12">
       <div class="fc g8"><span style="font-weight:700">${m.name}</span><span class="badge ${typeBadge}">${m.type||'League'}</span></div>
-      <div class="fc g8"><span class="muted small">${m.date||''}</span>${isAdmin?`<button class="btn btn-secondary btn-xs" onclick="recalcMatch('${m.id}')">🔄 Recalc</button><button class="btn btn-danger btn-xs" onclick="delMatch('${m.id}')">Delete</button>`:''}</div>
+      <div class="fc g8"><span class="muted small">${m.date||''}</span>${isAdmin?`<button class="btn btn-secondary btn-xs" onclick="recalcMatch('${m.id}')">🔄 Re-score</button><button class="btn btn-danger btn-xs" onclick="delMatch('${m.id}')">Delete</button>`:''}</div>
     </div>
     ${m.winner?`<div class="alert al-success mb12">🏆 Winner: <strong>${m.winner}</strong>${m.mom?` &nbsp;|&nbsp; MOM: <strong>${m.mom}</strong>`:''}</div>`:''}
     <div class="tscroll"><table>
@@ -706,48 +706,15 @@ async function recalcMatch(id){
   if(!checkAdmin('recalculate scores'))return;
   const m=S.matches.find(x=>x.id===id);
   if(!m){alert('Match not found');return;}
-  if(!m.rawScorecard){alert('No raw scorecard stored for this match. Re-upload the scorecard via Match Manager.');return;}
-  if(!confirm('Recalculate all team scores for "'+m.name+'"? This will overwrite current scores with fresh calculations.'))return;
-  const sc=m.rawScorecard;
-  const winner=m.winner||'';
-  const mom=m.mom||'';
-
-  // Evaluate predictions first
-  for(const t of S.teams){
-    if(t.predictions?.[id] && t.predictions[id].prediction){
-      t.predictions[id].correct=t.predictions[id].prediction?.toLowerCase()===winner?.toLowerCase();
-    }
+  scorecardMatchId=id;
+  // If raw scorecard exists, load it into pendingSC so user goes to Review page and can edit
+  if(m.rawScorecard){
+    pendingSC=m.rawScorecard;
+  } else {
+    pendingSC=null;
   }
-
-  // Recalculate each team
-  let unmatchedAll=[];
-  for(const t of S.teams){
-    const cap=t.currentCaptain;
-    const vc=t.currentVc;
-    const fullSc={...sc,match:{...sc.match,winner,mom},id};
-    const{total,players}=processTeamMatch(t,fullSc,id);
-    let extra=0,extraP=[];
-    const isWin=t.iplTeam&&winner&&t.iplTeam.toLowerCase()===winner.toLowerCase();
-    // Check if match was abandoned (preserve existing)
-    const wasAbandoned=m.teamScores?.[t.id]?.players?.some(p=>p.name==='Match abandoned');
-    if(wasAbandoned){extra+=40;extraP.push({name:'Match abandoned',pts:40,bd:[{l:'Abandoned +40',p:40,c:'bonus'}]});}
-    else if(isWin){extra+=75;extraP.push({name:`${t.iplTeam} won +75`,pts:75,bd:[{l:`${t.iplTeam} win bonus +75`,p:75,c:'bonus'}]});}
-    m.teamScores[t.id]={total:total+extra,captain:cap,vc,players:[...players,...extraP]};
-
-    // Track unmatched players
-    const matched=players.filter(p=>p.name!=='Prediction').map(p=>p.name);
-    const unmatched=t.players.filter(p=>!matched.includes(p.name)).map(p=>p.name);
-    if(unmatched.length) unmatchedAll.push({team:t.name,players:unmatched});
-  }
-
-  await saveS();render();
-  let msg='✅ Scores recalculated for "'+m.name+'"!';
-  if(unmatchedAll.length){
-    msg+='\n\n⚠️ Unmatched players (not found in scorecard):';
-    unmatchedAll.forEach(function(u){msg+='\n• '+u.team+': '+u.players.join(', ');});
-    msg+='\n\nCheck spelling matches Cricbuzz names.';
-  }
-  alert(msg);
+  addView='scorecard';
+  nav('add');
 }
 
 let pointsView = { teamId: null, matchId: null };
@@ -888,7 +855,7 @@ function vAddMenu(){
         <td class="muted">${m.date||'—'}</td>
         <td>${m.winner?`<span class="badge b-green">${m.winner}</span>`:'—'}</td>
         <td class="muted small">${m.mom||'—'}</td>
-        <td class="fc g6"><button class="btn btn-secondary btn-xs" onclick="recalcMatch('${m.id}')">🔄 Recalc</button><button class="btn btn-danger btn-xs" onclick="delMatch('${m.id}')">Delete</button></td>
+        <td class="fc g6"><button class="btn btn-secondary btn-xs" onclick="recalcMatch('${m.id}')">🔄 Re-score</button><button class="btn btn-danger btn-xs" onclick="delMatch('${m.id}')">Delete</button></td>
       </tr>`).join('')}
       </tbody>
     </table></div>
