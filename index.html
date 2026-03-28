@@ -455,9 +455,9 @@ function scoreBowling(b){
 
   // Runs conceded penalties
   if(runs>=70){pts-=75;bd.push({l:`${runs} runs conceded −75`,p:-75,c:'pen'});}
-  else if(runs>=65){pts-=50;bd.push({l:`${runs} runs conceded −50`,p:-50,c:'pen'});}
-  else if(runs>=60){pts-=30;bd.push({l:`${runs} runs conceded −30`,p:-30,c:'pen'});}
-  else if(runs>=55){pts-=20;bd.push({l:`${runs} runs conceded −20`,p:-20,c:'pen'});}
+  else if(runs>=60){pts-=50;bd.push({l:`${runs} runs conceded −50`,p:-50,c:'pen'});}
+  else if(runs>=55){pts-=30;bd.push({l:`${runs} runs conceded −30`,p:-30,c:'pen'});}
+  else if(runs>=50){pts-=20;bd.push({l:`${runs} runs conceded −20`,p:-20,c:'pen'});}
 
   return{pts,bd};
 }
