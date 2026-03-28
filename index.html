@@ -293,6 +293,8 @@ async function loadS() {
     if(!S.awards) S.awards = defState().awards;
     if(!S.awards.multipliers) S.awards.multipliers = {};
     if(!S.squad) S.squad = [];
+    // Normalize any mismatched roles in existing squad data
+    S.squad.forEach(function(p){ if(p.role) p.role = normalizeRole(p.role); });
   } catch(e) {
     console.error("Load error, using empty state:", e);
     S = defState();
@@ -2151,7 +2153,7 @@ async function importSquadXlsx(inp,tid){
     for(const row of rows){
       const name=(row['Name']||row['name']||row['Player']||'').toString().trim();
       const iplTeam=(row['IPL Team']||row['IPLTeam']||row['Team']||'').toString().trim();
-      const role=(row['Role']||row['role']||'').toString().trim();
+      const role=normalizeRole((row['Role']||row['role']||'').toString().trim());
       // Owner team: from xlsx column OR default to currently selected team
       const ownerTeam=(row['Owner Team']||row['OwnerTeam']||row['Owner']||'').toString().trim()||t?.name||'Unassigned';
       const isOS=(row['Overseas']||row['overseas']||row['OS']||'').toString().trim().toLowerCase();
@@ -2181,6 +2183,15 @@ function exportSquadTemplate(){
   XLSX.writeFile(wb,'squad_template.xlsx');
 }
 
+function normalizeRole(r){
+  if(!r) return '';
+  var low=r.toLowerCase().replace(/[\s\-_]+/g,'');
+  if(low==='batsman'||low==='batter'||low==='bat') return 'Batsman';
+  if(low==='bowler'||low==='bowl') return 'Bowler';
+  if(low==='allrounder'||low==='alrounder'||low==='ar') return 'All-rounder';
+  if(low==='wicketkeeper'||low==='wk'||low==='keeper') return 'Wicket-keeper';
+  return r; // return as-is if no match
+}
 const FORMATION = { Batsman:4, 'All-rounder':2, 'Wicket-keeper':1, Bowler:4 };
 const MAX_OVERSEAS = 4;
 const FLEX_ROLES = {
@@ -2379,17 +2390,27 @@ function showPickXI(tid){
 
   var roles=['Batsman','Bowler','All-rounder','Wicket-keeper'];
   var grouped={};roles.forEach(function(r){grouped[r]=[];});
-  mySquad.forEach(function(p){if(grouped[p.role])grouped[p.role].push(p);});
+  grouped['Unassigned']=[];
+  // Normalize role strings to handle variations from xlsx import
+  mySquad.forEach(function(p){
+    var norm=normalizeRole(p.role);
+    if(norm && grouped[norm]) grouped[norm].push(p);
+    else grouped['Unassigned'].push(p);
+  });
+  var allRoles=roles.slice();
+  if(grouped['Unassigned'].length) allRoles.push('Unassigned');
 
   var currentXI={};
   t.players.forEach(function(p){currentXI[p.name]=p.role;});
 
   var tableRows='';
-  roles.forEach(function(role){
+  allRoles.forEach(function(role){
     if(!grouped[role].length) return;
-    var roleLabel=role==='Batsman'?'🏏 Batsmen':role==='Bowler'?'⚡ Bowlers':role==='All-rounder'?'🔄 All-rounders':'🧤 Wicket-keepers';
-    var slotNote=role==='All-rounder'?' — can play as BAT/BOWL':role==='Wicket-keeper'?' — can play as BAT':'';
-    tableRows+='<tr style="background:var(--bg2)"><td colspan="7" style="font-weight:700;font-size:13px;padding:8px 12px">'+roleLabel+' (need '+FORMATION[role]+')'+slotNote+'</td></tr>';
+    var isUnassigned=role==='Unassigned';
+    var roleLabel=role==='Batsman'?'🏏 Batsmen':role==='Bowler'?'⚡ Bowlers':role==='All-rounder'?'🔄 All-rounders':role==='Wicket-keeper'?'🧤 Wicket-keepers':'⚠️ No Role Assigned';
+    var slotNote=role==='All-rounder'?' — can play as BAT/BOWL':role==='Wicket-keeper'?' — can play as BAT':isUnassigned?' — assign role in Squad tab first':'';
+    var needTxt=isUnassigned?'':'(need '+FORMATION[role]+')';
+    tableRows+='<tr style="background:'+(isUnassigned?'var(--red-dim,#3a1a1a)':'var(--bg2)')+'"><td colspan="7" style="font-weight:700;font-size:13px;padding:8px 12px">'+roleLabel+' '+needTxt+slotNote+'</td></tr>';
     grouped[role].forEach(function(p){
       var checked=!!currentXI[p.name];
       var assignedRole=currentXI[p.name]||role;
@@ -2408,11 +2429,19 @@ function showPickXI(tid){
           +'<option value="Wicket-keeper"'+(assignedRole==='Wicket-keeper'?' selected':'')+'>Wicket-keeper</option>'
           +'<option value="Batsman"'+(assignedRole==='Batsman'?' selected':'')+'>as Batsman</option>'
           +'</select>';
+      } else if(isUnassigned){
+        playAsCol='<select class="pxi-playas" data-pname="'+enc+'" style="width:auto;font-size:11px;padding:3px 6px;border-color:var(--red)">'
+          +'<option value="Batsman">Batsman</option>'
+          +'<option value="Bowler">Bowler</option>'
+          +'<option value="All-rounder">All-rounder</option>'
+          +'<option value="Wicket-keeper">Wicket-keeper</option>'
+          +'</select>';
       } else {
         playAsCol='<span class="badge '+(role==='Batsman'?'b-blue':'b-purple')+'" style="font-size:10px">'+role+'</span>';
       }
+      var dataRole=isUnassigned?'Batsman':role;
       tableRows+='<tr>'
-        +'<td><input type="checkbox" class="pxi-cb" data-pname="'+enc+'" data-role="'+role+'" data-os="'+(p.isOverseas?'1':'0')+'" '+(checked?'checked':'')+' /></td>'
+        +'<td><input type="checkbox" class="pxi-cb" data-pname="'+enc+'" data-role="'+dataRole+'" data-os="'+(p.isOverseas?'1':'0')+'" '+(checked?'checked':'')+' /></td>'
         +'<td style="font-weight:600">'+p.name+'</td>'
         +'<td><span class="badge b-blue" style="font-size:10px">'+(p.iplTeam||'—')+'</span></td>'
         +'<td>'+playAsCol+'</td>'
