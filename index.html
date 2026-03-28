@@ -1966,6 +1966,11 @@ function vSquad(){
         <option value="">All Roles</option>
         <option>Batsman</option><option>Bowler</option><option>All-rounder</option><option>Wicket-keeper</option>
       </select>
+      <select id="squad-filter-os" style="width:110px" onchange="renderSquadTable()">
+        <option value="">All Players</option>
+        <option value="os">Overseas 🌍</option>
+        <option value="ind">Indian</option>
+      </select>
     </div>
     <div id="squad-table-container">${renderSquadTableRows(mySquad)}</div>
   </div>`}`:''}
@@ -1976,18 +1981,21 @@ function renderSquadTableRows(players){
   const search=(document.getElementById('squad-search')?.value||'').toLowerCase();
   const filterIpl=document.getElementById('squad-filter-ipl')?.value||'';
   const filterRole=document.getElementById('squad-filter-role')?.value||'';
+  const filterOS=document.getElementById('squad-filter-os')?.value||'';
   const selTeam=S.teams.find(t=>t.id===squadViewTeam);
   let list=players;
   if(search) list=list.filter(p=>p.name.toLowerCase().includes(search));
   if(filterIpl) list=list.filter(p=>p.iplTeam===filterIpl);
   if(filterRole) list=list.filter(p=>p.role===filterRole);
+  if(filterOS==='os') list=list.filter(p=>p.isOverseas);
+  if(filterOS==='ind') list=list.filter(p=>!p.isOverseas);
   if(!list.length) return'<p class="muted small">No players match filter.</p>';
 
   const noRole=list.filter(p=>!p.role).length;
   const warning=noRole>0&&isAdmin?`<div class="alert al-warn mb8 small">⚠️ ${noRole} player${noRole>1?'s have':' has'} no role set — click ✏️ to assign roles before picking your XI.</div>`:'';
 
   return warning+`<div class="tscroll"><table>
-    <thead><tr><th>#</th><th>Name</th><th>IPL Team</th><th>Role</th><th>In XI?</th>${isAdmin?'<th></th>':''}</tr></thead>
+    <thead><tr><th>#</th><th>Name</th><th>IPL Team</th><th>Role</th><th>OS</th><th>In XI?</th>${isAdmin?'<th></th>':''}</tr></thead>
     <tbody>${list.map((p,i)=>{
       const inXI=selTeam?.players?.some(x=>x.name===p.name);
       const roleCls=p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':p.role==='Wicket-keeper'?'b-green':'b-red';
@@ -1996,6 +2004,7 @@ function renderSquadTableRows(players){
         <td style="font-weight:600">${p.name}</td>
         <td><span class="badge b-blue">${p.iplTeam||'—'}</span></td>
         <td><span class="badge ${roleCls}">${p.role||'⚠ No role'}</span></td>
+        <td>${p.isOverseas?'<span class="badge b-red">🌍</span>':'<span class="muted small">IND</span>'}</td>
         <td>${inXI?'<span class="badge b-green">✓ XI</span>':'<span class="badge b-gray">Bench</span>'}</td>
         ${isAdmin?`<td class="fc g4">
           <button class="btn btn-ghost btn-xs" onclick="showEditSquadPlayer('${p.id}')">✏️</button>
@@ -2036,6 +2045,7 @@ function showEditSquadPlayer(id){
       ${S.teams.map(t=>`<option value="${t.name}" ${p.ownerTeam===t.name?'selected':''}>${t.name}</option>`).join('')}
     </select>
   </div>
+  <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="esp-overseas" style="width:auto" ${p.isOverseas?'checked':''} /> Overseas Player 🌍</label></div>
   <button class="btn btn-primary" onclick="saveEditSquadPlayer('${id}')">Save</button>`);
 }
 
@@ -2047,9 +2057,10 @@ async function saveEditSquadPlayer(id){
   const iplTeam=document.getElementById('esp-ipl')?.value||'';
   const role=document.getElementById('esp-role')?.value||'';
   const ownerTeam=document.getElementById('esp-owner')?.value||'';
+  const isOverseas=document.getElementById('esp-overseas')?.checked||false;
   if(!name){alert('Name required');return;}
   if(!role){alert('Please select a role');return;}
-  p.name=name; p.iplTeam=iplTeam; p.role=role; p.ownerTeam=ownerTeam;
+  p.name=name; p.iplTeam=iplTeam; p.role=role; p.ownerTeam=ownerTeam; p.isOverseas=isOverseas;
   // Also update the player in any XI that references this player
   for(const t of S.teams){
     const xi=t.players.find(x=>x.id===id||x.name===name);
@@ -2087,6 +2098,7 @@ function showAddSquadPlayer(tid){
       ${S.teams.map(x=>`<option value="${x.name}" ${x.id===(tid||squadViewTeam)?'selected':''}>${x.name}</option>`).join('')}
     </select>
   </div>
+  <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sq-overseas" style="width:auto" /> Overseas Player 🌍</label></div>
   <button class="btn btn-primary" onclick="addSquadPlayer()">Add Player</button>`);
 }
 
@@ -2096,6 +2108,7 @@ async function addSquadPlayer(){
   const iplTeam=document.getElementById('sq-iplteam')?.value;
   const role=document.getElementById('sq-role')?.value;
   const ownerTeam=document.getElementById('sq-owner')?.value||'Unassigned';
+  const isOverseas=document.getElementById('sq-overseas')?.checked||false;
   if(!name){alert('Name required');return;}
   if(!role){alert('Select a role');return;}
   if(!S.squad) S.squad=[];
@@ -2106,7 +2119,7 @@ async function addSquadPlayer(){
   // Check squad size limit
   const teamSquad=S.squad.filter(p=>p.ownerTeam===ownerTeam);
   if(teamSquad.length>=25){alert('Squad is full (max 25 players). Remove a player first.');return;}
-  S.squad.push({id:gid(),name,iplTeam,role,ownerTeam});
+  S.squad.push({id:gid(),name,iplTeam,role,ownerTeam,isOverseas});
   await saveS();closeModal('add-squad-modal');render();
 }
 
@@ -2137,11 +2150,12 @@ async function importSquadXlsx(inp,tid){
       const role=(row['Role']||row['role']||'').toString().trim();
       // Owner team: from xlsx column OR default to currently selected team
       const ownerTeam=(row['Owner Team']||row['OwnerTeam']||row['Owner']||'').toString().trim()||t?.name||'Unassigned';
+      const isOS=(row['Overseas']||row['overseas']||row['OS']||'').toString().trim().toLowerCase();
       if(!name){skipped++;continue;}
       if(S.squad.some(p=>p.name.toLowerCase()===name.toLowerCase()&&p.ownerTeam===ownerTeam)){skipped++;continue;}
       const teamSquad=S.squad.filter(p=>p.ownerTeam===ownerTeam);
       if(teamSquad.length>=25){skipped++;continue;}
-      S.squad.push({id:gid(),name,iplTeam,role,ownerTeam});
+      S.squad.push({id:gid(),name,iplTeam,role,ownerTeam,isOverseas:isOS==='yes'||isOS==='true'||isOS==='1'||isOS==='y'});
       added++;
     }
     await saveS();render();
@@ -2153,9 +2167,10 @@ async function importSquadXlsx(inp,tid){
 
 function exportSquadTemplate(){
   const ws=XLSX.utils.aoa_to_sheet([
-    ['Name','IPL Team','Role','Owner Team'],
-    ['Virat Kohli','RCB','Batsman','Team Alpha'],
-    ['Jasprit Bumrah','MI','Bowler','Team Beta'],
+    ['Name','IPL Team','Role','Owner Team','Overseas'],
+    ['Virat Kohli','RCB','Batsman','Team Alpha',''],
+    ['Jasprit Bumrah','MI','Bowler','Team Beta',''],
+    ['Jos Buttler','RR','Wicket-keeper','Team Alpha','Yes'],
   ]);
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Squad');
