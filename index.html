@@ -1896,13 +1896,14 @@ function vSquad(){
   const mySquad=selTeam?(S.squad||[]).filter(p=>p.ownerTeam===selTeam.name):[];
 
   return`<div class="fb mb16">
-    <h1>🏏 Squad</h1>
-    ${isAdmin&&selTeam?`<div class="fc g8">
+    <h1>Squad</h1>
+    ${isAdmin&&selTeam?`<div class="fc g8" style="flex-wrap:wrap">
       <button class="btn btn-primary btn-sm" onclick="showAddSquadPlayer('${selTeam.id}')">+ Add Player</button>
       <label class="btn btn-secondary btn-sm" style="cursor:pointer">
-        📥 Import xlsx <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importSquadXlsx(this,'${selTeam.id}')" />
+        Import xlsx <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importSquadXlsx(this,'${selTeam.id}')" />
       </label>
-      <button class="btn btn-ghost btn-sm" onclick="exportSquadTemplate()">⬇ Template</button>
+      <button class="btn btn-ghost btn-sm" onclick="exportSquadTemplate()">Template</button>
+      ${selTeam&&mySquad.length>=11?`<button class="btn btn-secondary btn-sm" style="border-color:var(--orange);color:var(--orange)" onclick="showPickXI('${selTeam.id}')">Pick Playing XI →</button>`:''}
     </div>`:''}
   </div>
 
@@ -1927,15 +1928,24 @@ function vSquad(){
       <div class="fc g8">
         <span style="font-weight:700;font-size:15px">${selTeam.name}</span>
         ${selTeam.owner?`<span class="muted small">· ${selTeam.owner}</span>`:''}
-        ${selTeam.iplTeam?`<span class="badge b-blue">🏏 ${selTeam.iplTeam}</span>`:`
-          <span class="badge b-red" style="cursor:pointer" onclick="showEditIplTeam('${selTeam.id}')">⚠️ No IPL team set</span>`}
+        ${selTeam.iplTeam?`<span class="badge b-blue">${selTeam.iplTeam}</span>`:`<span class="badge b-red" style="cursor:pointer" onclick="showEditIplTeam('${selTeam.id}')">⚠ No IPL team</span>`}
       </div>
-      <div class="fc g8">
+      <div class="fc g8" style="flex-wrap:wrap">
         <span class="badge b-gray">${mySquad.length} players</span>
-        ${mySquad.length<15?`<span class="badge b-red">Need ${15-mySquad.length} more (min 15)</span>`:mySquad.length<=25?`<span class="badge b-green">✓ Valid squad</span>`:`<span class="badge b-orange">Over 25 — trim squad</span>`}
+        <span class="badge b-${selTeam.players.length===11?'green':'orange'}">${selTeam.players.length}/11 in XI</span>
+        ${mySquad.length<15?`<span class="badge b-red">Min 15 needed</span>`:mySquad.length<=25?`<span class="badge b-green">✓ Valid squad</span>`:`<span class="badge b-orange">Max 25</span>`}
       </div>
     </div>
-    ${!selTeam.iplTeam?`<div class="alert al-warn small">Set this team's IPL team so win bonuses (+75) are applied automatically. <button class="btn btn-secondary btn-xs" onclick="showEditIplTeam('${selTeam.id}')">Set Now</button></div>`:''}
+    ${(()=>{
+      const noRole=mySquad.filter(p=>!p.role).length;
+      const xiIncomplete=selTeam.players.length<11;
+      const alerts=[];
+      if(noRole>0) alerts.push(`<div class="alert al-warn small mb8">⚠️ <strong>${noRole} player${noRole>1?'s':''} have no role.</strong> Click ✏️ on each row to assign Batsman / Bowler / All-rounder / Wicket-keeper before picking XI.</div>`);
+      if(xiIncomplete&&mySquad.length>=11&&noRole===0) alerts.push(`<div class="alert al-info small mb8">Your XI is incomplete (${selTeam.players.length}/11). <button class="btn btn-primary btn-sm" onclick="showPickXI('${selTeam.id}')">Pick XI Now →</button></div>`);
+      if(!selTeam.iplTeam) alerts.push(`<div class="alert al-warn small mb8">Set IPL team for auto win bonus. <button class="btn btn-secondary btn-xs" onclick="showEditIplTeam('${selTeam.id}')">Set Now</button></div>`);
+      return alerts.join('');
+    })()}
+    ${isAdmin&&selTeam.players.length<11&&mySquad.filter(p=>p.role).length>=11?`<button class="btn btn-primary" onclick="showPickXI('${selTeam.id}')">Pick Playing XI →</button>`:''}
   </div>
 
   ${!mySquad.length?`<div class="empty" style="padding:32px 20px"><div class="icon">🏏</div><h2>No players in ${selTeam.name}'s squad</h2><p class="muted">Import an xlsx or add players manually. Min 15, max 25 players.</p></div>`:`
@@ -1958,7 +1968,6 @@ function vSquad(){
 }
 
 function renderSquadTableRows(players){
-  // Apply filters if filter elements exist
   const search=(document.getElementById('squad-search')?.value||'').toLowerCase();
   const filterIpl=document.getElementById('squad-filter-ipl')?.value||'';
   const filterRole=document.getElementById('squad-filter-role')?.value||'';
@@ -1968,20 +1977,82 @@ function renderSquadTableRows(players){
   if(filterIpl) list=list.filter(p=>p.iplTeam===filterIpl);
   if(filterRole) list=list.filter(p=>p.role===filterRole);
   if(!list.length) return'<p class="muted small">No players match filter.</p>';
-  return`<div class="tscroll"><table>
+
+  const noRole=list.filter(p=>!p.role).length;
+  const warning=noRole>0&&isAdmin?`<div class="alert al-warn mb8 small">⚠️ ${noRole} player${noRole>1?'s have':' has'} no role set — click ✏️ to assign roles before picking your XI.</div>`:'';
+
+  return warning+`<div class="tscroll"><table>
     <thead><tr><th>#</th><th>Name</th><th>IPL Team</th><th>Role</th><th>In XI?</th>${isAdmin?'<th></th>':''}</tr></thead>
     <tbody>${list.map((p,i)=>{
       const inXI=selTeam?.players?.some(x=>x.name===p.name);
+      const roleCls=p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':p.role==='Wicket-keeper'?'b-green':'b-red';
       return`<tr>
         <td class="muted small">${i+1}</td>
         <td style="font-weight:600">${p.name}</td>
         <td><span class="badge b-blue">${p.iplTeam||'—'}</span></td>
-        <td><span class="badge ${p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':'b-green'}">${p.role||'—'}</span></td>
+        <td><span class="badge ${roleCls}">${p.role||'⚠ No role'}</span></td>
         <td>${inXI?'<span class="badge b-green">✓ XI</span>':'<span class="badge b-gray">Bench</span>'}</td>
-        ${isAdmin?`<td><button class="btn btn-danger btn-xs" onclick="removeSquadPlayer('${p.id}')">✕</button></td>`:''}
+        ${isAdmin?`<td class="fc g4">
+          <button class="btn btn-ghost btn-xs" onclick="showEditSquadPlayer('${p.id}')">✏️</button>
+          <button class="btn btn-danger btn-xs" onclick="removeSquadPlayer('${p.id}')">✕</button>
+        </td>`:''}
       </tr>`;
     }).join('')}</tbody>
   </table></div>`;
+}
+
+function showEditSquadPlayer(id){
+  if(!checkAdmin('edit a squad player')) return;
+  const p=(S.squad||[]).find(x=>x.id===id);
+  if(!p) return;
+  const iplTeams=['MI','CSK','RCB','KKR','PBKS','RR','SRH','DC','GT','LSG'];
+  addModal('edit-squad-modal',`<div class="mhead"><h2>Edit Player — ${p.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('edit-squad-modal')">✕</button></div>
+  <div class="fg"><label>Full Name</label><input id="esp-name" value="${p.name}" /></div>
+  <div class="fr">
+    <div class="fg"><label>IPL Team</label>
+      <select id="esp-ipl">
+        <option value="">Select…</option>
+        ${iplTeams.map(t=>`<option value="${t}" ${p.iplTeam===t?'selected':''}>${t}</option>`).join('')}
+      </select>
+    </div>
+    <div class="fg"><label>Role</label>
+      <select id="esp-role">
+        <option value="">Select…</option>
+        <option value="Batsman" ${p.role==='Batsman'?'selected':''}>Batsman</option>
+        <option value="Bowler" ${p.role==='Bowler'?'selected':''}>Bowler</option>
+        <option value="All-rounder" ${p.role==='All-rounder'?'selected':''}>All-rounder</option>
+        <option value="Wicket-keeper" ${p.role==='Wicket-keeper'?'selected':''}>Wicket-keeper</option>
+      </select>
+    </div>
+  </div>
+  <div class="fg"><label>Owner Team</label>
+    <select id="esp-owner">
+      <option value="">Unassigned</option>
+      ${S.teams.map(t=>`<option value="${t.name}" ${p.ownerTeam===t.name?'selected':''}>${t.name}</option>`).join('')}
+    </select>
+  </div>
+  <button class="btn btn-primary" onclick="saveEditSquadPlayer('${id}')">Save</button>`);
+}
+
+async function saveEditSquadPlayer(id){
+  if(!checkAdmin('edit squad player')) return;
+  const p=(S.squad||[]).find(x=>x.id===id);
+  if(!p) return;
+  const name=document.getElementById('esp-name')?.value.trim();
+  const iplTeam=document.getElementById('esp-ipl')?.value||'';
+  const role=document.getElementById('esp-role')?.value||'';
+  const ownerTeam=document.getElementById('esp-owner')?.value||'';
+  if(!name){alert('Name required');return;}
+  if(!role){alert('Please select a role');return;}
+  p.name=name; p.iplTeam=iplTeam; p.role=role; p.ownerTeam=ownerTeam;
+  // Also update the player in any XI that references this player
+  for(const t of S.teams){
+    const xi=t.players.find(x=>x.id===id||x.name===name);
+    if(xi){xi.name=name;xi.iplTeam=iplTeam;xi.role=role;}
+  }
+  await saveS();
+  closeModal('edit-squad-modal');
+  renderSquadTable();
 }
 
 function renderSquadTable(){
