@@ -3044,6 +3044,7 @@ function aOverview(){
   const topRuns=[...players].sort((a,b)=>b.runs-a.runs)[0];
   const topWk=[...players].sort((a,b)=>b.wickets-a.wickets)[0];
   const topSix=[...players].sort((a,b)=>b.sixes-a.sixes)[0];
+  const topFour=[...players].sort((a,b)=>b.fours-a.fours)[0];
 
   // Best fantasy match performance
   let bestMatchPerf={name:'',team:'',pts:0,match:''};
@@ -3061,9 +3062,9 @@ function aOverview(){
   const totalPlayers=players.length;
 
   return`
-  <div class="alert al-info mb12 small">📊 Tournament stats cover <strong>all ${totalPlayers} IPL players</strong> across all scorecards — not limited to fantasy squads.</div>
+  <div class="alert al-info mb12 small">📊 Tournament stats cover <strong>all ${totalPlayers} IPL players</strong> across all scorecards. Runs total excludes byes &amp; leg-byes (not in any player's figures).</div>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:20px">
-    <div class="stat-card"><div class="val" style="color:var(--orange)">${totalRuns}</div><div class="lbl">Match Runs</div><div class="muted" style="font-size:9px">incl. extras</div></div>
+    <div class="stat-card"><div class="val" style="color:var(--orange)">${totalRuns}</div><div class="lbl">Runs Scored</div><div class="muted" style="font-size:9px">excl. byes/leg-byes</div></div>
     <div class="stat-card"><div class="val" style="color:var(--purple,#a78bfa)">${totalDismissals}</div><div class="lbl">Dismissals</div><div class="muted" style="font-size:9px">${totalBowlWickets}w + ${totalRunOuts}ro + ${totalStumpings}st</div></div>
     <div class="stat-card"><div class="val" style="color:#ef4444">${totalSixes}</div><div class="lbl">Sixes</div></div>
     <div class="stat-card"><div class="val" style="color:#3b82f6">${totalFours}</div><div class="lbl">Fours</div></div>
@@ -3090,6 +3091,12 @@ function aOverview(){
       <div style="font-size:20px;font-weight:800;margin:6px 0">${topSix?.name||'—'}</div>
       <div style="font-size:24px;font-weight:900;color:#ef4444">${topSix?.sixes||0}</div>
       <div class="muted small">${topSix?.team||''} · ${topSix?.matches||0} inn</div>
+    </div>
+    <div class="card" style="text-align:center;padding:16px">
+      <div class="muted small">🔷 Most Fours</div>
+      <div style="font-size:20px;font-weight:800;margin:6px 0">${topFour?.name||'—'}</div>
+      <div style="font-size:24px;font-weight:900;color:#3b82f6">${topFour?.fours||0}</div>
+      <div class="muted small">${topFour?.team||''} · ${topFour?.matches||0} inn</div>
     </div>
     ${bestMatchPerf.pts>0?`<div class="card" style="text-align:center;padding:16px">
       <div class="muted small">🔥 Best Fantasy Innings</div>
