@@ -3002,8 +3002,13 @@ function aOverview(){
   const topScore=ranked[0]?.total||1;
 
   // Quick stats
-  const totalRuns=players.reduce((s,p)=>s+p.runs,0);
-  const totalWickets=players.reduce((s,p)=>s+p.wickets,0);
+  const totalBatRuns=players.reduce((s,p)=>s+p.runs,0);
+  const totalMatchRuns=players.reduce((s,p)=>s+p.runsConceded,0); // bowling conceded includes wides/no-balls
+  const totalRuns=Math.max(totalBatRuns,totalMatchRuns); // use higher (bowling conceded is closer to actual match total)
+  const totalBowlWickets=players.reduce((s,p)=>s+p.wickets,0);
+  const totalRunOuts=players.reduce((s,p)=>s+p.runOuts,0);
+  const totalStumpings=players.reduce((s,p)=>s+p.stumpings,0);
+  const totalDismissals=totalBowlWickets+totalRunOuts+totalStumpings;
   const totalSixes=players.reduce((s,p)=>s+p.sixes,0);
   const totalFours=players.reduce((s,p)=>s+p.fours,0);
   const totalCatches=players.reduce((s,p)=>s+p.catches,0);
@@ -3028,13 +3033,14 @@ function aOverview(){
 
   return`
   <div class="alert al-info mb12 small">📊 Tournament stats cover <strong>all ${totalPlayers} IPL players</strong> across all scorecards — not limited to fantasy squads.</div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:20px">
-    <div class="stat-card"><div class="val" style="color:var(--orange)">${totalRuns}</div><div class="lbl">Total Runs</div></div>
-    <div class="stat-card"><div class="val" style="color:var(--purple,#a78bfa)">${totalWickets}</div><div class="lbl">Total Wickets</div></div>
-    <div class="stat-card"><div class="val" style="color:#ef4444">${totalSixes}</div><div class="lbl">Total Sixes</div></div>
-    <div class="stat-card"><div class="val" style="color:#3b82f6">${totalFours}</div><div class="lbl">Total Fours</div></div>
-    <div class="stat-card"><div class="val" style="color:#10b981">${totalCatches}</div><div class="lbl">Total Catches</div></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:20px">
+    <div class="stat-card"><div class="val" style="color:var(--orange)">${totalRuns}</div><div class="lbl">Match Runs</div><div class="muted" style="font-size:9px">incl. extras</div></div>
+    <div class="stat-card"><div class="val" style="color:var(--purple,#a78bfa)">${totalDismissals}</div><div class="lbl">Dismissals</div><div class="muted" style="font-size:9px">${totalBowlWickets}w + ${totalRunOuts}ro + ${totalStumpings}st</div></div>
+    <div class="stat-card"><div class="val" style="color:#ef4444">${totalSixes}</div><div class="lbl">Sixes</div></div>
+    <div class="stat-card"><div class="val" style="color:#3b82f6">${totalFours}</div><div class="lbl">Fours</div></div>
+    <div class="stat-card"><div class="val" style="color:#10b981">${totalCatches}</div><div class="lbl">Catches</div></div>
     <div class="stat-card"><div class="val" style="color:#f59e0b">${matches.length}</div><div class="lbl">Matches</div></div>
+    <div class="stat-card"><div class="val" style="color:var(--text2)">${totalPlayers}</div><div class="lbl">Players</div></div>
   </div>
 
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:20px">
@@ -3121,6 +3127,8 @@ function aFrontRunners(){
     +leaderboard('Most Sixes','💥','sixes','6s','#ef4444')
     +leaderboard('Most Fours','🔷','fours','4s','#3b82f6')
     +leaderboard('Most Catches','🧤','catches','ct','#10b981')
+    +leaderboard('Most Run Outs','🏃','runOuts','ro','#06b6d4')
+    +leaderboard('Most Stumpings','⚡','stumpings','st','#ec4899')
     +leaderboard('Most Fantasy Points (XI only)','⭐','fantasyPts','pts','#f59e0b',true);
 }
 
