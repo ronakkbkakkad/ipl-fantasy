@@ -2893,12 +2893,13 @@ function getAggregatedStats(){
 
   for(const m of completed){
     const sc=m.rawScorecard;
-    // Batting
+    // Batting — ALL players from the real IPL match
     for(const b of (sc.batting||[])){
       const n=b.name;if(!n)continue;
-      if(!playerMap[n])playerMap[n]={name:n,team:b.team||'',matches:0,runs:0,balls:0,fours:0,sixes:0,fifties:0,hundreds:0,ducks:0,notOuts:0,hs:0,wickets:0,oversBowled:0,runsConceded:0,maidens:0,catches:0,stumpings:0,runOuts:0,fantasyPts:0,matchList:[]};
+      if(!playerMap[n])playerMap[n]={name:n,team:b.team||'',matches:0,innings:0,runs:0,balls:0,fours:0,sixes:0,fifties:0,hundreds:0,ducks:0,notOuts:0,hs:0,wickets:0,oversBowled:0,runsConceded:0,maidens:0,catches:0,stumpings:0,runOuts:0,fantasyPts:0,matchList:[],ownedBy:[],inXIOf:[]};
       const p=playerMap[n];
       if(b.team)p.team=b.team;
+      p.innings++;
       p.runs+=(b.runs||0);p.balls+=(b.balls||0);p.fours+=(b.fours||0);p.sixes+=(b.sixes||0);
       if(b.isNotOut)p.notOuts++;
       if((b.runs||0)>=100)p.hundreds++;
@@ -2906,19 +2907,19 @@ function getAggregatedStats(){
       if(!b.isNotOut&&(b.runs||0)===0&&(b.balls||0)>0)p.ducks++;
       if((b.runs||0)>p.hs)p.hs=b.runs||0;
     }
-    // Bowling
+    // Bowling — ALL bowlers
     for(const b of (sc.bowling||[])){
       const n=b.name;if(!n)continue;
-      if(!playerMap[n])playerMap[n]={name:n,team:b.team||'',matches:0,runs:0,balls:0,fours:0,sixes:0,fifties:0,hundreds:0,ducks:0,notOuts:0,hs:0,wickets:0,oversBowled:0,runsConceded:0,maidens:0,catches:0,stumpings:0,runOuts:0,fantasyPts:0,matchList:[]};
+      if(!playerMap[n])playerMap[n]={name:n,team:b.team||'',matches:0,innings:0,runs:0,balls:0,fours:0,sixes:0,fifties:0,hundreds:0,ducks:0,notOuts:0,hs:0,wickets:0,oversBowled:0,runsConceded:0,maidens:0,catches:0,stumpings:0,runOuts:0,fantasyPts:0,matchList:[],ownedBy:[],inXIOf:[]};
       const p=playerMap[n];
       if(b.team)p.team=b.team;
       p.wickets+=(b.wickets||0);p.runsConceded+=(b.runs||0);p.maidens+=(b.maidens||0);
       p.oversBowled+=parseOvers(b.overs||'0');
     }
-    // Fielding
+    // Fielding — ALL fielders
     for(const f of (sc.fielding||[])){
       const n=f.name;if(!n)continue;
-      if(!playerMap[n])playerMap[n]={name:n,team:'',matches:0,runs:0,balls:0,fours:0,sixes:0,fifties:0,hundreds:0,ducks:0,notOuts:0,hs:0,wickets:0,oversBowled:0,runsConceded:0,maidens:0,catches:0,stumpings:0,runOuts:0,fantasyPts:0,matchList:[]};
+      if(!playerMap[n])playerMap[n]={name:n,team:'',matches:0,innings:0,runs:0,balls:0,fours:0,sixes:0,fifties:0,hundreds:0,ducks:0,notOuts:0,hs:0,wickets:0,oversBowled:0,runsConceded:0,maidens:0,catches:0,stumpings:0,runOuts:0,fantasyPts:0,matchList:[],ownedBy:[],inXIOf:[]};
       const p=playerMap[n];
       p.catches+=(f.catches||0);p.stumpings+=(f.stumpings||0);p.runOuts+=(f.runOuts||0);
     }
@@ -2927,7 +2928,7 @@ function getAggregatedStats(){
     allNames.forEach(n=>{if(playerMap[n])playerMap[n].matches++;});
   }
 
-  // Fantasy points per player across all teams
+  // Fantasy points — only for players in someone's Playing XI (scored per team)
   for(const m of completed){
     for(const t of S.teams){
       const ts=m.teamScores?.[t.id];
@@ -2938,6 +2939,20 @@ function getAggregatedStats(){
           playerMap[p.name].fantasyPts+=(p.pts||0);
           playerMap[p.name].matchList.push({match:m.name,pts:p.pts,team:t.name});
         }
+      }
+    }
+  }
+
+  // Mark which fantasy teams own / have this player in XI
+  for(const t of S.teams){
+    for(const sq of (S.squad||[])){
+      if(sq.ownerTeam===t.name && playerMap[sq.name]){
+        if(!playerMap[sq.name].ownedBy.includes(t.name)) playerMap[sq.name].ownedBy.push(t.name);
+      }
+    }
+    for(const xi of (t.players||[])){
+      if(playerMap[xi.name]){
+        if(!playerMap[xi.name].inXIOf.includes(t.name)) playerMap[xi.name].inXIOf.push(t.name);
       }
     }
   }
@@ -3009,7 +3024,10 @@ function aOverview(){
     }
   }
 
+  const totalPlayers=players.length;
+
   return`
+  <div class="alert al-info mb12 small">📊 Tournament stats cover <strong>all ${totalPlayers} IPL players</strong> across all scorecards — not limited to fantasy squads.</div>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:20px">
     <div class="stat-card"><div class="val" style="color:var(--orange)">${totalRuns}</div><div class="lbl">Total Runs</div></div>
     <div class="stat-card"><div class="val" style="color:var(--purple,#a78bfa)">${totalWickets}</div><div class="lbl">Total Wickets</div></div>
@@ -3067,7 +3085,7 @@ function aOverview(){
 function aFrontRunners(){
   const{players}=getAggregatedStats();
 
-  function leaderboard(title,emoji,sortKey,unit,color){
+  function leaderboard(title,emoji,sortKey,unit,color,isFantasy){
     const top=[...players].filter(p=>p[sortKey]>0).sort((a,b)=>b[sortKey]-a[sortKey]).slice(0,7);
     if(!top.length) return'';
     const maxVal=top[0][sortKey]||1;
@@ -3075,27 +3093,35 @@ function aFrontRunners(){
       +'<div style="margin-top:12px">'+top.map((p,i)=>{
         const pct=Math.round((p[sortKey]/maxVal)*100);
         const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':''+(i+1);
+        const ownerTag=p.inXIOf.length?'<span class="badge b-green" style="font-size:9px;margin-left:4px">'+p.inXIOf.join(', ')+'</span>'
+          :p.ownedBy.length?'<span class="badge b-blue" style="font-size:9px;margin-left:4px">'+p.ownedBy.join(', ')+'</span>'
+          :'<span class="badge b-gray" style="font-size:9px;margin-left:4px">Unpicked</span>';
         return'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
           +'<span style="width:24px;text-align:center;font-weight:700;font-size:13px">'+medal+'</span>'
           +'<div style="flex:1;min-width:0">'
-          +'<div style="display:flex;justify-content:space-between;margin-bottom:2px">'
-          +'<span style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+p.name+' <span class="muted small">'+p.team+'</span></span>'
+          +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">'
+          +'<span style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+p.name+' <span class="muted small">'+p.team+'</span>'+ownerTag+'</span>'
           +'<span style="font-weight:800;color:'+color+';font-size:14px;flex-shrink:0;margin-left:8px">'+p[sortKey]+' '+unit+'</span>'
           +'</div>'
           +'<div style="background:var(--bg3);border-radius:4px;height:6px;overflow:hidden">'
           +'<div style="height:100%;border-radius:4px;width:'+pct+'%;background:'+color+';transition:width .5s"></div>'
           +'</div>'
-          +'<div class="muted" style="font-size:10px;margin-top:1px">'+p.matches+' matches'+(sortKey==='runs'?' · SR '+(p.balls>0?((p.runs/p.balls)*100).toFixed(1):'0')+(p.hs>0?' · HS '+p.hs:''):'')+(sortKey==='wickets'?' · Eco '+(p.oversBowled>0?(p.runsConceded/p.oversBowled).toFixed(2):'0'):'')+'</div>'
+          +'<div class="muted" style="font-size:10px;margin-top:1px">'+p.matches+' matches'
+          +(sortKey==='runs'?' · SR '+(p.balls>0?((p.runs/p.balls)*100).toFixed(1):'0')+(p.hs>0?' · HS '+p.hs:''):'')
+          +(sortKey==='wickets'?' · Eco '+(p.oversBowled>0?(p.runsConceded/p.oversBowled).toFixed(2):'0'):'')
+          +(sortKey==='catches'&&(p.stumpings||p.runOuts)?' · St '+p.stumpings+' · RO '+p.runOuts:'')
+          +'</div>'
           +'</div></div>';
       }).join('')+'</div></div>';
   }
 
-  return leaderboard('Top Run Scorers','🏏','runs','runs','var(--orange)')
+  return'<div class="alert al-info mb12 small">📊 IPL stats cover <strong>all players</strong> across all matches — not limited to fantasy squads. <span class="badge b-green" style="font-size:9px">Team Name</span> = in that team\'s XI · <span class="badge b-blue" style="font-size:9px">Team Name</span> = in squad · <span class="badge b-gray" style="font-size:9px">Unpicked</span> = not in any fantasy team.</div>'
+    +leaderboard('Top Run Scorers','🏏','runs','runs','var(--orange)')
     +leaderboard('Top Wicket Takers','⚡','wickets','wkts','var(--purple,#a78bfa)')
     +leaderboard('Most Sixes','💥','sixes','6s','#ef4444')
     +leaderboard('Most Fours','🔷','fours','4s','#3b82f6')
     +leaderboard('Most Catches','🧤','catches','ct','#10b981')
-    +leaderboard('Most Fantasy Points','⭐','fantasyPts','pts','#f59e0b');
+    +leaderboard('Most Fantasy Points (XI only)','⭐','fantasyPts','pts','#f59e0b',true);
 }
 
 let analyticsPlayerSearch='';
@@ -3111,10 +3137,11 @@ function aPlayers(){
   const sortOpts=[
     {k:'runs',l:'Runs'},{k:'wickets',l:'Wickets'},{k:'sixes',l:'Sixes'},
     {k:'fours',l:'Fours'},{k:'catches',l:'Catches'},{k:'fantasyPts',l:'Fantasy Pts'},
-    {k:'matches',l:'Matches'},{k:'hs',l:'Highest Score'}
+    {k:'matches',l:'Matches'},{k:'hs',l:'Highest Score'},{k:'innings',l:'Innings'}
   ];
 
-  return'<div class="card mb12">'
+  return'<div class="alert al-info mb12 small">📊 IPL stats include <strong>all players</strong> from scorecards — not just those in fantasy squads. Fantasy Pts only accrue when a player is in a team\'s Playing XI.</div>'
+    +'<div class="card mb12">'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
     +'<input placeholder="Search player or team…" value="'+analyticsPlayerSearch+'" oninput="analyticsPlayerSearch=this.value;render()" style="width:200px" />'
     +'<select onchange="analyticsPlayerSort=this.value;render()" style="width:150px">'
@@ -3123,15 +3150,23 @@ function aPlayers(){
     +'<span class="muted small">'+filtered.length+' players</span>'
     +'</div>'
     +'<div class="tscroll"><table>'
-    +'<thead><tr><th>#</th><th>Player</th><th>Team</th><th>M</th><th>R</th><th>B</th><th>SR</th><th>HS</th><th>50/100</th><th>4s</th><th>6s</th><th>W</th><th>Eco</th><th>Ct</th><th>FPts</th></tr></thead>'
-    +'<tbody>'+filtered.slice(0,50).map((p,i)=>{
+    +'<thead><tr><th>#</th><th>Player</th><th>IPL</th><th>Status</th><th>M</th><th>Inn</th><th>R</th><th>B</th><th>SR</th><th>HS</th><th>50/100</th><th>4s</th><th>6s</th><th>W</th><th>Eco</th><th>Ct</th><th>FPts</th></tr></thead>'
+    +'<tbody>'+filtered.slice(0,100).map((p,i)=>{
       const sr=p.balls>0?((p.runs/p.balls)*100).toFixed(1):'—';
       const eco=p.oversBowled>0?(p.runsConceded/p.oversBowled).toFixed(2):'—';
+      const avg=p.innings-p.notOuts>0?(p.runs/(p.innings-p.notOuts)).toFixed(1):'—';
+      const inXI=p.inXIOf.length>0;
+      const owned=p.ownedBy.length>0;
+      const statusBadge=inXI?'<span class="badge b-green" style="font-size:9px" title="In XI of: '+p.inXIOf.join(', ')+'">XI</span>'
+        :owned?'<span class="badge b-blue" style="font-size:9px" title="Owned by: '+p.ownedBy.join(', ')+'">Squad</span>'
+        :'<span class="badge b-gray" style="font-size:9px">Free</span>';
       return'<tr>'
         +'<td class="muted small">'+(i+1)+'</td>'
         +'<td style="font-weight:600;white-space:nowrap">'+p.name+'</td>'
-        +'<td><span class="badge b-blue" style="font-size:10px">'+p.team+'</span></td>'
+        +'<td><span class="badge b-blue" style="font-size:10px">'+(p.team||'—')+'</span></td>'
+        +'<td>'+statusBadge+'</td>'
         +'<td>'+p.matches+'</td>'
+        +'<td class="muted">'+p.innings+'</td>'
         +'<td style="font-weight:700">'+p.runs+'</td>'
         +'<td class="muted">'+p.balls+'</td>'
         +'<td class="muted">'+sr+'</td>'
@@ -3142,7 +3177,7 @@ function aPlayers(){
         +'<td style="color:var(--purple,#a78bfa);font-weight:600">'+p.wickets+'</td>'
         +'<td class="muted">'+eco+'</td>'
         +'<td>'+p.catches+'</td>'
-        +'<td style="color:var(--orange);font-weight:700">'+p.fantasyPts+'</td>'
+        +'<td style="color:var(--orange);font-weight:700">'+(p.fantasyPts||'—')+'</td>'
         +'</tr>';
     }).join('')+'</tbody></table></div></div>';
 }
