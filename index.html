@@ -3225,12 +3225,12 @@ function aTeamTrends(){
   // Calculate graph dimensions
   const W=Math.max(600,nMatches*80);
   const H=350;
-  const padL=55,padR=60,padT=20,padB=60;
+  const padL=55,padR=90,padT=20,padB=60;
   const gW=W-padL-padR, gH=H-padT-padB;
 
-  // Find global min/max across all teams
+  // Find global min/max across all teams (per-match points)
   let allVals=[];
-  sorted.forEach(t=>t.series.forEach(s=>allVals.push(s.cumulative)));
+  sorted.forEach(t=>t.series.forEach(s=>allVals.push(s.pts)));
   allVals.push(0);
   const minVal=Math.min(...allVals);
   const maxVal=Math.max(...allVals);
@@ -3259,26 +3259,32 @@ function aTeamTrends(){
     svg+='<text x="'+x+'" y="'+(H-padB+16)+'" text-anchor="middle" fill="var(--text3,#666)" font-size="10" transform="rotate(-30 '+x+' '+(H-padB+16)+')">'+label+'</text>';
   });
 
+  // Zero baseline
+  if(minVal<0){
+    const zeroY=toY(0);
+    svg+='<line x1="'+padL+'" y1="'+zeroY+'" x2="'+(W-padR)+'" y2="'+zeroY+'" stroke="var(--text3,#666)" stroke-width="1" stroke-dasharray="6,3"/>';
+    svg+='<text x="'+(padL-8)+'" y="'+(zeroY+4)+'" text-anchor="end" fill="var(--text2,#999)" font-size="10" font-weight="600">0</text>';
+  }
+
   // Draw lines + dots for each team
   sorted.forEach((t,ti)=>{
     const color=colors[ti%colors.length];
     if(!t.series.length) return;
     // Line
-    const pathPts=t.series.map((s,i)=>toX(i)+','+toY(s.cumulative));
+    const pathPts=t.series.map((s,i)=>toX(i)+','+toY(s.pts));
     svg+='<polyline points="'+pathPts.join(' ')+'" fill="none" stroke="'+color+'" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>';
-    // Dots
+    // Dots with per-match score labels
     t.series.forEach((s,i)=>{
-      const x=toX(i),y=toY(s.cumulative);
+      const x=toX(i),y=toY(s.pts);
       svg+='<circle cx="'+x+'" cy="'+y+'" r="3.5" fill="'+color+'" stroke="var(--bg1,#1a1a2e)" stroke-width="1.5"/>';
-      // Show per-match points near the dot
       if(nMatches<=10){
-        svg+='<text x="'+x+'" y="'+(y-8)+'" text-anchor="middle" fill="'+color+'" font-size="9" font-weight="600">'+(s.pts>0?'+':'')+s.pts+'</text>';
+        svg+='<text x="'+x+'" y="'+(y-8)+'" text-anchor="middle" fill="'+color+'" font-size="9" font-weight="600">'+s.pts+'</text>';
       }
     });
-    // End label with total
+    // End label with TOTAL
     const lastX=toX(nMatches-1);
-    const lastY=toY(t.series[t.series.length-1].cumulative);
-    svg+='<text x="'+(lastX+8)+'" y="'+(lastY+4)+'" fill="'+color+'" font-size="11" font-weight="800">'+t.total+'</text>';
+    const lastY=toY(t.series[t.series.length-1].pts);
+    svg+='<text x="'+(lastX+8)+'" y="'+(lastY+4)+'" fill="'+color+'" font-size="11" font-weight="800">Σ'+t.total+'</text>';
   });
 
   svg+='</svg>';
@@ -3294,7 +3300,7 @@ function aTeamTrends(){
   });
   legend+='</div>';
 
-  let graph='<div class="card mb16"><h2>📉 Cumulative Progress</h2>'
+  let graph='<div class="card mb16"><h2>📉 Match-by-Match Performance</h2><p class="muted small mb8">Points per match — lines go up/down based on each match score. Σ = season total.</p>'
     +'<div class="tscroll" style="overflow-x:auto;padding-bottom:8px">'+svg+'</div>'
     +legend+'</div>';
 
