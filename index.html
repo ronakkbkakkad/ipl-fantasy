@@ -2348,8 +2348,8 @@ function teamCard(t){
       </div>
       <div class="fc g8">
         <span class="hl" style="font-weight:700">${tot} pts</span>
-        ${isAdmin&&!seasonStarted&&mySquad.length?`<button class="btn btn-secondary btn-sm" onclick="showPickXI('${t.id}')">${t.players.length===11?'✏️ Edit XI':'🎯 Pick XI'}</button>`:''}
-        ${isAdmin&&!seasonStarted?`<button class="btn btn-ghost btn-sm" onclick="showEditIplTeam('${t.id}')">✏️ IPL</button>`:''}
+        ${isAdmin&&mySquad.length?`<button class="btn btn-secondary btn-sm" onclick="showPickXI('${t.id}')">${t.players.length===11?'✏️ Edit XI':'🎯 Pick XI'}</button>`:''}
+        ${isAdmin?`<button class="btn btn-ghost btn-sm" onclick="showEditIplTeam('${t.id}')">✏️ IPL</button>`:''}
         <button class="btn btn-danger btn-sm" onclick="delTeam('${t.id}')">Delete</button>
       </div>
     </div>
@@ -2363,7 +2363,7 @@ function teamCard(t){
       <span class="badge b-orange xs">⚡ SS: ${2-(t.superSubsUsed||0)}/2 left</span>
     </div>
     ${formErrors.length&&t.players.length===11?`<div class="alert al-warn mb8 small">⚠️ Formation: ${formErrors.join(' · ')}</div>`:''}
-    ${!seasonStarted&&t.players.length<11?`<div class="alert al-warn mb8 small">⚠️ XI incomplete (${t.players.length}/11). Use "Pick XI" to select from squad.</div>`:''}
+    ${t.players.length<11?`<div class="alert al-warn mb8 small">⚠️ XI incomplete (${t.players.length}/11). Use "Pick XI" to select from squad.</div>`:''}
     ${t.players.length?`<div class="tscroll"><table>
       <thead><tr><th>Player</th><th>IPL Team</th><th>Role</th><th style="text-align:right">Actions</th></tr></thead>
       <tbody>${t.players.map(p=>{const sq=(S.squad||[]).find(s=>s.name===p.name);return`<tr>
@@ -2371,7 +2371,7 @@ function teamCard(t){
         <td class="muted">${p.iplTeam||'—'}</td>
         <td><span class="badge ${p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':'b-green'}">${p.role||'—'}</span></td>
         <td style="text-align:right">
-          ${!seasonStarted?`<button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','captain')">C</button>
+          ${isAdmin?`<button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','captain')">C</button>
           <button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','vc')">VC</button>
           <button class="btn btn-danger btn-xs" onclick="removeFromXI('${t.id}','${p.name}')">✕</button>`:''}
         </td>
@@ -3208,36 +3208,87 @@ function aTeamTrends(){
   });
   matchTable+='</tr></tbody></table></div></div>';
 
-  // Team sparklines (cumulative progress)
-  let sparklines='<div class="card mb16"><h2>📉 Cumulative Progress</h2>'
-    +'<div style="margin-top:12px">';
-  const maxCum=Math.max(...teams.map(t=>t.series.length?t.series[t.series.length-1].cumulative:0),1);
-  const sorted=[...teams].sort((a,b)=>b.total-a.total);
+  // Combined cumulative progress graph
   const colors=['#f97316','#3b82f6','#10b981','#a78bfa','#ef4444','#f59e0b','#ec4899','#06b6d4','#84cc16','#6366f1'];
+  const sorted=[...teams].sort((a,b)=>b.total-a.total);
+  const nMatches=matches.length;
+  if(!nMatches) return matchTable;
+
+  // Calculate graph dimensions
+  const W=Math.max(600,nMatches*80);
+  const H=350;
+  const padL=55,padR=60,padT=20,padB=60;
+  const gW=W-padL-padR, gH=H-padT-padB;
+
+  // Find global min/max across all teams
+  let allVals=[];
+  sorted.forEach(t=>t.series.forEach(s=>allVals.push(s.cumulative)));
+  allVals.push(0);
+  const minVal=Math.min(...allVals);
+  const maxVal=Math.max(...allVals);
+  const range=maxVal-minVal||1;
+
+  const toX=i=>padL+(i/(nMatches-1||1))*gW;
+  const toY=v=>padT+(1-(v-minVal)/range)*gH;
+
+  // Build SVG
+  let svg='<svg width="'+W+'" height="'+H+'" xmlns="http://www.w3.org/2000/svg" style="font-family:inherit">';
+
+  // Grid lines
+  const gridSteps=5;
+  for(let g=0;g<=gridSteps;g++){
+    const val=Math.round(minVal+(range/gridSteps)*g);
+    const y=toY(val);
+    svg+='<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="var(--border,#333)" stroke-width="0.5" stroke-dasharray="4,4"/>';
+    svg+='<text x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end" fill="var(--text3,#666)" font-size="10">'+val+'</text>';
+  }
+
+  // X axis labels (match names)
+  matches.forEach((m,i)=>{
+    const x=toX(i);
+    const label=m.name.replace(/^.*?(\d+)$/,'M$1')||('M'+(i+1));
+    svg+='<line x1="'+x+'" y1="'+padT+'" x2="'+x+'" y2="'+(H-padB)+'" stroke="var(--border,#333)" stroke-width="0.3"/>';
+    svg+='<text x="'+x+'" y="'+(H-padB+16)+'" text-anchor="middle" fill="var(--text3,#666)" font-size="10" transform="rotate(-30 '+x+' '+(H-padB+16)+')">'+label+'</text>';
+  });
+
+  // Draw lines + dots for each team
   sorted.forEach((t,ti)=>{
     const color=colors[ti%colors.length];
-    const pts=t.series.map(s=>s.cumulative);
-    if(!pts.length) return;
-    // SVG sparkline
-    const w=320,h=40,pad=2;
-    const maxY=Math.max(...pts,1);
-    const minY=Math.min(...pts,0);
-    const range=maxY-minY||1;
-    const xStep=pts.length>1?(w-pad*2)/(pts.length-1):0;
-    const points=pts.map((v,i)=>{
-      const x=pad+i*xStep;
-      const y=pad+(1-(v-minY)/range)*(h-pad*2);
-      return x+','+y;
-    }).join(' ');
-    sparklines+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;padding:6px 0;border-bottom:1px solid var(--border)">'
-      +'<span style="width:130px;font-weight:600;font-size:13px;color:'+color+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+t.name+'</span>'
-      +'<svg width="'+w+'" height="'+h+'" style="flex-shrink:0"><polyline points="'+points+'" fill="none" stroke="'+color+'" stroke-width="2" stroke-linejoin="round"/>'
-      +'<circle cx="'+(pad+(pts.length-1)*xStep)+'" cy="'+(pad+(1-(pts[pts.length-1]-minY)/range)*(h-pad*2))+'" r="3" fill="'+color+'"/>'
-      +'</svg>'
-      +'<span style="font-weight:800;font-size:15px;color:'+color+';min-width:50px;text-align:right">'+t.total+'</span>'
+    if(!t.series.length) return;
+    // Line
+    const pathPts=t.series.map((s,i)=>toX(i)+','+toY(s.cumulative));
+    svg+='<polyline points="'+pathPts.join(' ')+'" fill="none" stroke="'+color+'" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>';
+    // Dots
+    t.series.forEach((s,i)=>{
+      const x=toX(i),y=toY(s.cumulative);
+      svg+='<circle cx="'+x+'" cy="'+y+'" r="3.5" fill="'+color+'" stroke="var(--bg1,#1a1a2e)" stroke-width="1.5"/>';
+      // Show per-match points near the dot
+      if(nMatches<=10){
+        svg+='<text x="'+x+'" y="'+(y-8)+'" text-anchor="middle" fill="'+color+'" font-size="9" font-weight="600">'+(s.pts>0?'+':'')+s.pts+'</text>';
+      }
+    });
+    // End label with total
+    const lastX=toX(nMatches-1);
+    const lastY=toY(t.series[t.series.length-1].cumulative);
+    svg+='<text x="'+(lastX+8)+'" y="'+(lastY+4)+'" fill="'+color+'" font-size="11" font-weight="800">'+t.total+'</text>';
+  });
+
+  svg+='</svg>';
+
+  // Legend
+  let legend='<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px">';
+  sorted.forEach((t,ti)=>{
+    const color=colors[ti%colors.length];
+    legend+='<div style="display:flex;align-items:center;gap:4px;font-size:12px">'
+      +'<span style="width:12px;height:3px;background:'+color+';border-radius:2px;display:inline-block"></span>'
+      +'<span style="color:'+color+';font-weight:600">'+t.name+'</span>'
       +'</div>';
   });
-  sparklines+='</div></div>';
+  legend+='</div>';
+
+  let graph='<div class="card mb16"><h2>📉 Cumulative Progress</h2>'
+    +'<div class="tscroll" style="overflow-x:auto;padding-bottom:8px">'+svg+'</div>'
+    +legend+'</div>';
 
   // Best/worst match per team
   let extremes='<div class="card"><h2>🎯 Best & Worst Match per Team</h2><div class="tscroll"><table>'
@@ -3256,7 +3307,7 @@ function aTeamTrends(){
   });
   extremes+='</tbody></table></div></div>';
 
-  return sparklines+matchTable+extremes;
+  return graph+matchTable+extremes;
 }
 
 function vAwards(){
