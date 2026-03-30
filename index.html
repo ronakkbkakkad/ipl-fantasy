@@ -2887,6 +2887,35 @@ async function savePred(tid,mid){
    ═══════════════════════════════════════════ */
 let analyticsTab='overview';
 
+function toggleTeamLine(idx){
+  const allGroups=document.querySelectorAll('[id^="tline-"]');
+  const allBtns=document.querySelectorAll('[data-tline]');
+  if(idx==='all'){
+    allGroups.forEach(g=>{g.style.opacity='1';g.style.display='';});
+    allBtns.forEach(b=>{b.style.opacity='1';});
+    return;
+  }
+  // Check if this team is already solo (others hidden)
+  const target=document.getElementById('tline-'+idx);
+  if(!target) return;
+  const othersHidden=[...allGroups].filter(g=>g.id!=='tline-'+idx).every(g=>g.style.opacity==='0.08'||g.style.display==='none');
+  if(othersHidden){
+    // Toggle back to show all
+    allGroups.forEach(g=>{g.style.opacity='1';g.style.display='';});
+    allBtns.forEach(b=>{b.style.opacity='1';});
+  } else {
+    // Isolate this team
+    allGroups.forEach(g=>{
+      if(g.id==='tline-'+idx){g.style.opacity='1';g.style.display='';}
+      else{g.style.opacity='0.08';}
+    });
+    allBtns.forEach(b=>{
+      if(b.dataset.tline===''+idx){b.style.opacity='1';}
+      else{b.style.opacity='0.35';}
+    });
+  }
+}
+
 function getAggregatedStats(){
   const completed=S.matches.filter(m=>m.completed&&m.rawScorecard);
   const playerMap={};
@@ -3266,14 +3295,13 @@ function aTeamTrends(){
     svg+='<text x="'+(padL-8)+'" y="'+(zeroY+4)+'" text-anchor="end" fill="var(--text2,#999)" font-size="10" font-weight="600">0</text>';
   }
 
-  // Draw lines + dots for each team
+  // Draw lines + dots for each team (wrapped in <g> for toggle)
   sorted.forEach((t,ti)=>{
     const color=colors[ti%colors.length];
     if(!t.series.length) return;
-    // Line
+    svg+='<g id="tline-'+ti+'">';
     const pathPts=t.series.map((s,i)=>toX(i)+','+toY(s.pts));
     svg+='<polyline points="'+pathPts.join(' ')+'" fill="none" stroke="'+color+'" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>';
-    // Dots with per-match score labels
     t.series.forEach((s,i)=>{
       const x=toX(i),y=toY(s.pts);
       svg+='<circle cx="'+x+'" cy="'+y+'" r="3.5" fill="'+color+'" stroke="var(--bg1,#1a1a2e)" stroke-width="1.5"/>';
@@ -3281,26 +3309,27 @@ function aTeamTrends(){
         svg+='<text x="'+x+'" y="'+(y-8)+'" text-anchor="middle" fill="'+color+'" font-size="9" font-weight="600">'+s.pts+'</text>';
       }
     });
-    // End label with TOTAL
     const lastX=toX(nMatches-1);
     const lastY=toY(t.series[t.series.length-1].pts);
-    svg+='<text x="'+(lastX+8)+'" y="'+(lastY+4)+'" fill="'+color+'" font-size="11" font-weight="800">Σ'+t.total+'</text>';
+    svg+='<text x="'+(lastX+8)+'" y="'+(lastY+4)+'" fill="'+color+'" font-size="11" font-weight="800">'+t.total+'</text>';
+    svg+='</g>';
   });
 
   svg+='</svg>';
 
-  // Legend
-  let legend='<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px">';
+  // Clickable legend
+  let legend='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center">';
+  legend+='<button onclick="toggleTeamLine(\'all\')" style="padding:3px 10px;border-radius:12px;border:1px solid var(--border2);background:var(--bg3);color:var(--text1);font-size:11px;cursor:pointer;font-weight:600">Show All</button>';
   sorted.forEach((t,ti)=>{
     const color=colors[ti%colors.length];
-    legend+='<div style="display:flex;align-items:center;gap:4px;font-size:12px">'
-      +'<span style="width:12px;height:3px;background:'+color+';border-radius:2px;display:inline-block"></span>'
-      +'<span style="color:'+color+';font-weight:600">'+t.name+'</span>'
-      +'</div>';
+    legend+='<button onclick="toggleTeamLine('+ti+')" data-tline="'+ti+'" style="display:flex;align-items:center;gap:4px;padding:3px 10px;border-radius:12px;border:2px solid '+color+';background:transparent;color:'+color+';font-size:11px;cursor:pointer;font-weight:600;transition:.15s">'
+      +'<span style="width:10px;height:3px;background:'+color+';border-radius:2px;display:inline-block"></span>'
+      +t.name
+      +'</button>';
   });
   legend+='</div>';
 
-  let graph='<div class="card mb16"><h2>📉 Match-by-Match Performance</h2><p class="muted small mb8">Points per match — lines go up/down based on each match score. Σ = season total.</p>'
+  let graph='<div class="card mb16"><h2>📉 Match-by-Match Performance</h2><p class="muted small mb8">Points per match — click a team to isolate, "Show All" to reset.</p>'
     +'<div class="tscroll" style="overflow-x:auto;padding-bottom:8px">'+svg+'</div>'
     +legend+'</div>';
 
