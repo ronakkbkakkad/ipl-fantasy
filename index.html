@@ -190,6 +190,7 @@ label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
       <button data-v="swaps">Swaps</button>
       <button data-v="teams">Teams</button>
       <button data-v="squad">Squad</button>
+      <button data-v="analytics">Analytics</button>
       <button class="admin-only" data-v="add" style="display:none">Add Match</button>
       <button class="admin-only" data-v="awards" style="display:none">Awards</button>
     </nav>
@@ -212,6 +213,7 @@ label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
     <button data-v="swaps" onclick="navDrawer(this)">Swaps</button>
     <button data-v="teams" onclick="navDrawer(this)">Teams</button>
     <button data-v="squad" onclick="navDrawer(this)">Squad</button>
+    <button data-v="analytics" onclick="navDrawer(this)">Analytics</button>
     <button class="admin-only" data-v="add" style="display:none" onclick="navDrawer(this)">Add Match</button>
     <button class="admin-only" data-v="awards" style="display:none" onclick="navDrawer(this)">Awards</button>
   </div>
@@ -589,6 +591,7 @@ function render(){
     case 'add': app.innerHTML=isAdmin?vAdd():'<div class="empty"><div class="icon">🔒</div><h2>Admin only</h2></div>'; break;
     case 'teams': app.innerHTML=vTeams(); break;
     case 'squad': app.innerHTML=vSquad(); break;
+    case 'analytics': app.innerHTML=vAnalytics(); break;
     case 'swaps': app.innerHTML=vSwaps(); break;
     case 'predictions': app.innerHTML=vPredictions(); break;
     case 'awards': app.innerHTML=isAdmin?vAwards():'<div class="empty"><div class="icon">🔒</div><h2>Admin only</h2></div>'; break;
@@ -2877,6 +2880,348 @@ async function savePred(tid,mid){
   if(!t.predictions)t.predictions={};
   t.predictions[mid]={prediction:pred,savedAt:new Date().toISOString()};
   await saveS();render();
+}
+
+/* ═══════════════════════════════════════════
+   ANALYTICS
+   ═══════════════════════════════════════════ */
+let analyticsTab='overview';
+
+function getAggregatedStats(){
+  const completed=S.matches.filter(m=>m.completed&&m.rawScorecard);
+  const playerMap={};
+
+  for(const m of completed){
+    const sc=m.rawScorecard;
+    // Batting
+    for(const b of (sc.batting||[])){
+      const n=b.name;if(!n)continue;
+      if(!playerMap[n])playerMap[n]={name:n,team:b.team||'',matches:0,runs:0,balls:0,fours:0,sixes:0,fifties:0,hundreds:0,ducks:0,notOuts:0,hs:0,wickets:0,oversBowled:0,runsConceded:0,maidens:0,catches:0,stumpings:0,runOuts:0,fantasyPts:0,matchList:[]};
+      const p=playerMap[n];
+      if(b.team)p.team=b.team;
+      p.runs+=(b.runs||0);p.balls+=(b.balls||0);p.fours+=(b.fours||0);p.sixes+=(b.sixes||0);
+      if(b.isNotOut)p.notOuts++;
+      if((b.runs||0)>=100)p.hundreds++;
+      else if((b.runs||0)>=50)p.fifties++;
+      if(!b.isNotOut&&(b.runs||0)===0&&(b.balls||0)>0)p.ducks++;
+      if((b.runs||0)>p.hs)p.hs=b.runs||0;
+    }
+    // Bowling
+    for(const b of (sc.bowling||[])){
+      const n=b.name;if(!n)continue;
+      if(!playerMap[n])playerMap[n]={name:n,team:b.team||'',matches:0,runs:0,balls:0,fours:0,sixes:0,fifties:0,hundreds:0,ducks:0,notOuts:0,hs:0,wickets:0,oversBowled:0,runsConceded:0,maidens:0,catches:0,stumpings:0,runOuts:0,fantasyPts:0,matchList:[]};
+      const p=playerMap[n];
+      if(b.team)p.team=b.team;
+      p.wickets+=(b.wickets||0);p.runsConceded+=(b.runs||0);p.maidens+=(b.maidens||0);
+      p.oversBowled+=parseOvers(b.overs||'0');
+    }
+    // Fielding
+    for(const f of (sc.fielding||[])){
+      const n=f.name;if(!n)continue;
+      if(!playerMap[n])playerMap[n]={name:n,team:'',matches:0,runs:0,balls:0,fours:0,sixes:0,fifties:0,hundreds:0,ducks:0,notOuts:0,hs:0,wickets:0,oversBowled:0,runsConceded:0,maidens:0,catches:0,stumpings:0,runOuts:0,fantasyPts:0,matchList:[]};
+      const p=playerMap[n];
+      p.catches+=(f.catches||0);p.stumpings+=(f.stumpings||0);p.runOuts+=(f.runOuts||0);
+    }
+    // Count matches per player
+    const allNames=new Set([...(sc.batting||[]).map(b=>b.name),...(sc.bowling||[]).map(b=>b.name),...(sc.fielding||[]).map(f=>f.name)].filter(Boolean));
+    allNames.forEach(n=>{if(playerMap[n])playerMap[n].matches++;});
+  }
+
+  // Fantasy points per player across all teams
+  for(const m of completed){
+    for(const t of S.teams){
+      const ts=m.teamScores?.[t.id];
+      if(!ts)continue;
+      for(const p of (ts.players||[])){
+        if(p.name==='Prediction'||p.name==='Match abandoned')continue;
+        if(playerMap[p.name]){
+          playerMap[p.name].fantasyPts+=(p.pts||0);
+          playerMap[p.name].matchList.push({match:m.name,pts:p.pts,team:t.name});
+        }
+      }
+    }
+  }
+
+  return{players:Object.values(playerMap),completed};
+}
+
+function getTeamProgressData(){
+  const completed=S.matches.filter(m=>m.completed);
+  const teams=S.teams.map(t=>{
+    let cumulative=0;
+    const series=completed.map(m=>{
+      const s=m.teamScores?.[t.id];
+      const pts=s?s.total:0;
+      cumulative+=pts;
+      return{match:m.name,pts,cumulative};
+    });
+    return{id:t.id,name:t.name,series,total:teamTotal(t)};
+  });
+  return{teams,matches:completed};
+}
+
+function vAnalytics(){
+  const completed=S.matches.filter(m=>m.completed);
+  if(!completed.length)return'<div class="empty"><div class="icon">📊</div><h2>No Match Data Yet</h2><p class="muted">Analytics will appear once matches are scored.</p></div>';
+
+  const tabs=[
+    {id:'overview',label:'📊 Overview'},
+    {id:'frontrunners',label:'🏆 Front Runners'},
+    {id:'players',label:'👤 Player Stats'},
+    {id:'teams',label:'📈 Team Trends'},
+  ];
+
+  return'<div class="fb mb16"><h1>📊 Analytics</h1><span class="muted small">'+completed.length+' matches analyzed</span></div>'
+    +'<div class="stabs mb16">'+tabs.map(t=>'<button class="stab '+(analyticsTab===t.id?'active':'')+'" onclick="analyticsTab=\''+t.id+'\';render()">'+t.label+'</button>').join('')+'</div>'
+    +(analyticsTab==='overview'?aOverview()
+     :analyticsTab==='frontrunners'?aFrontRunners()
+     :analyticsTab==='players'?aPlayers()
+     :analyticsTab==='teams'?aTeamTrends()
+     :aOverview());
+}
+
+function aOverview(){
+  const{players}=getAggregatedStats();
+  const{teams,matches}=getTeamProgressData();
+  const ranked=[...teams].sort((a,b)=>b.total-a.total);
+  const topScore=ranked[0]?.total||1;
+
+  // Quick stats
+  const totalRuns=players.reduce((s,p)=>s+p.runs,0);
+  const totalWickets=players.reduce((s,p)=>s+p.wickets,0);
+  const totalSixes=players.reduce((s,p)=>s+p.sixes,0);
+  const totalFours=players.reduce((s,p)=>s+p.fours,0);
+  const totalCatches=players.reduce((s,p)=>s+p.catches,0);
+  const topRuns=[...players].sort((a,b)=>b.runs-a.runs)[0];
+  const topWk=[...players].sort((a,b)=>b.wickets-a.wickets)[0];
+  const topSix=[...players].sort((a,b)=>b.sixes-a.sixes)[0];
+
+  // Best fantasy match performance
+  let bestMatchPerf={name:'',team:'',pts:0,match:''};
+  for(const m of matches){
+    for(const t of S.teams){
+      const ts=m.teamScores?.[t.id];
+      if(!ts)continue;
+      for(const p of (ts.players||[])){
+        if(p.name==='Prediction'||p.name==='Match abandoned')continue;
+        if(p.pts>bestMatchPerf.pts) bestMatchPerf={name:p.name,team:t.name,pts:p.pts,match:m.name};
+      }
+    }
+  }
+
+  return`
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:20px">
+    <div class="stat-card"><div class="val" style="color:var(--orange)">${totalRuns}</div><div class="lbl">Total Runs</div></div>
+    <div class="stat-card"><div class="val" style="color:var(--purple,#a78bfa)">${totalWickets}</div><div class="lbl">Total Wickets</div></div>
+    <div class="stat-card"><div class="val" style="color:#ef4444">${totalSixes}</div><div class="lbl">Total Sixes</div></div>
+    <div class="stat-card"><div class="val" style="color:#3b82f6">${totalFours}</div><div class="lbl">Total Fours</div></div>
+    <div class="stat-card"><div class="val" style="color:#10b981">${totalCatches}</div><div class="lbl">Total Catches</div></div>
+    <div class="stat-card"><div class="val" style="color:#f59e0b">${matches.length}</div><div class="lbl">Matches</div></div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:20px">
+    <div class="card" style="text-align:center;padding:16px">
+      <div class="muted small">🏏 Most Runs</div>
+      <div style="font-size:20px;font-weight:800;margin:6px 0">${topRuns?.name||'—'}</div>
+      <div style="font-size:24px;font-weight:900;color:var(--orange)">${topRuns?.runs||0}</div>
+      <div class="muted small">${topRuns?.team||''} · ${topRuns?.matches||0} inn</div>
+    </div>
+    <div class="card" style="text-align:center;padding:16px">
+      <div class="muted small">⚡ Most Wickets</div>
+      <div style="font-size:20px;font-weight:800;margin:6px 0">${topWk?.name||'—'}</div>
+      <div style="font-size:24px;font-weight:900;color:var(--purple,#a78bfa)">${topWk?.wickets||0}</div>
+      <div class="muted small">${topWk?.team||''} · ${topWk?.matches||0} inn</div>
+    </div>
+    <div class="card" style="text-align:center;padding:16px">
+      <div class="muted small">💥 Most Sixes</div>
+      <div style="font-size:20px;font-weight:800;margin:6px 0">${topSix?.name||'—'}</div>
+      <div style="font-size:24px;font-weight:900;color:#ef4444">${topSix?.sixes||0}</div>
+      <div class="muted small">${topSix?.team||''} · ${topSix?.matches||0} inn</div>
+    </div>
+    ${bestMatchPerf.pts>0?`<div class="card" style="text-align:center;padding:16px">
+      <div class="muted small">🔥 Best Fantasy Innings</div>
+      <div style="font-size:20px;font-weight:800;margin:6px 0">${bestMatchPerf.name}</div>
+      <div style="font-size:24px;font-weight:900;color:#10b981">${bestMatchPerf.pts} pts</div>
+      <div class="muted small">${bestMatchPerf.match} · ${bestMatchPerf.team}</div>
+    </div>`:''}
+  </div>
+
+  <div class="card mb16">
+    <h2>🏆 Fantasy Standings</h2>
+    <div style="margin-top:12px">${ranked.map((t,i)=>{
+      const pct=topScore>0?Math.round((t.total/topScore)*100):0;
+      const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':'';
+      const avg=t.series.length?Math.round(t.total/t.series.length):0;
+      return'<div style="margin-bottom:10px">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">'
+        +'<span style="font-weight:700;font-size:13px">'+medal+' '+t.name+'</span>'
+        +'<span style="font-weight:800;font-size:15px;color:var(--orange)">'+t.total+' <span style="font-size:11px;color:var(--text3);font-weight:400">avg '+avg+'</span></span>'
+        +'</div>'
+        +'<div style="background:var(--bg3);border-radius:6px;height:10px;overflow:hidden">'
+        +'<div style="height:100%;border-radius:6px;width:'+pct+'%;background:linear-gradient(90deg,var(--orange),#f97316);transition:width .5s"></div>'
+        +'</div></div>';
+    }).join('')}</div>
+  </div>`;
+}
+
+function aFrontRunners(){
+  const{players}=getAggregatedStats();
+
+  function leaderboard(title,emoji,sortKey,unit,color){
+    const top=[...players].filter(p=>p[sortKey]>0).sort((a,b)=>b[sortKey]-a[sortKey]).slice(0,7);
+    if(!top.length) return'';
+    const maxVal=top[0][sortKey]||1;
+    return'<div class="card mb12"><h2>'+emoji+' '+title+'</h2>'
+      +'<div style="margin-top:12px">'+top.map((p,i)=>{
+        const pct=Math.round((p[sortKey]/maxVal)*100);
+        const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':''+(i+1);
+        return'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
+          +'<span style="width:24px;text-align:center;font-weight:700;font-size:13px">'+medal+'</span>'
+          +'<div style="flex:1;min-width:0">'
+          +'<div style="display:flex;justify-content:space-between;margin-bottom:2px">'
+          +'<span style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+p.name+' <span class="muted small">'+p.team+'</span></span>'
+          +'<span style="font-weight:800;color:'+color+';font-size:14px;flex-shrink:0;margin-left:8px">'+p[sortKey]+' '+unit+'</span>'
+          +'</div>'
+          +'<div style="background:var(--bg3);border-radius:4px;height:6px;overflow:hidden">'
+          +'<div style="height:100%;border-radius:4px;width:'+pct+'%;background:'+color+';transition:width .5s"></div>'
+          +'</div>'
+          +'<div class="muted" style="font-size:10px;margin-top:1px">'+p.matches+' matches'+(sortKey==='runs'?' · SR '+(p.balls>0?((p.runs/p.balls)*100).toFixed(1):'0')+(p.hs>0?' · HS '+p.hs:''):'')+(sortKey==='wickets'?' · Eco '+(p.oversBowled>0?(p.runsConceded/p.oversBowled).toFixed(2):'0'):'')+'</div>'
+          +'</div></div>';
+      }).join('')+'</div></div>';
+  }
+
+  return leaderboard('Top Run Scorers','🏏','runs','runs','var(--orange)')
+    +leaderboard('Top Wicket Takers','⚡','wickets','wkts','var(--purple,#a78bfa)')
+    +leaderboard('Most Sixes','💥','sixes','6s','#ef4444')
+    +leaderboard('Most Fours','🔷','fours','4s','#3b82f6')
+    +leaderboard('Most Catches','🧤','catches','ct','#10b981')
+    +leaderboard('Most Fantasy Points','⭐','fantasyPts','pts','#f59e0b');
+}
+
+let analyticsPlayerSearch='';
+let analyticsPlayerSort='runs';
+
+function aPlayers(){
+  const{players}=getAggregatedStats();
+  const search=analyticsPlayerSearch.toLowerCase();
+  let filtered=players.filter(p=>p.matches>0);
+  if(search) filtered=filtered.filter(p=>p.name.toLowerCase().includes(search)||p.team.toLowerCase().includes(search));
+  filtered.sort((a,b)=>b[analyticsPlayerSort]-a[analyticsPlayerSort]);
+
+  const sortOpts=[
+    {k:'runs',l:'Runs'},{k:'wickets',l:'Wickets'},{k:'sixes',l:'Sixes'},
+    {k:'fours',l:'Fours'},{k:'catches',l:'Catches'},{k:'fantasyPts',l:'Fantasy Pts'},
+    {k:'matches',l:'Matches'},{k:'hs',l:'Highest Score'}
+  ];
+
+  return'<div class="card mb12">'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
+    +'<input placeholder="Search player or team…" value="'+analyticsPlayerSearch+'" oninput="analyticsPlayerSearch=this.value;render()" style="width:200px" />'
+    +'<select onchange="analyticsPlayerSort=this.value;render()" style="width:150px">'
+    +sortOpts.map(o=>'<option value="'+o.k+'"'+(analyticsPlayerSort===o.k?' selected':'')+'>Sort: '+o.l+'</option>').join('')
+    +'</select>'
+    +'<span class="muted small">'+filtered.length+' players</span>'
+    +'</div>'
+    +'<div class="tscroll"><table>'
+    +'<thead><tr><th>#</th><th>Player</th><th>Team</th><th>M</th><th>R</th><th>B</th><th>SR</th><th>HS</th><th>50/100</th><th>4s</th><th>6s</th><th>W</th><th>Eco</th><th>Ct</th><th>FPts</th></tr></thead>'
+    +'<tbody>'+filtered.slice(0,50).map((p,i)=>{
+      const sr=p.balls>0?((p.runs/p.balls)*100).toFixed(1):'—';
+      const eco=p.oversBowled>0?(p.runsConceded/p.oversBowled).toFixed(2):'—';
+      return'<tr>'
+        +'<td class="muted small">'+(i+1)+'</td>'
+        +'<td style="font-weight:600;white-space:nowrap">'+p.name+'</td>'
+        +'<td><span class="badge b-blue" style="font-size:10px">'+p.team+'</span></td>'
+        +'<td>'+p.matches+'</td>'
+        +'<td style="font-weight:700">'+p.runs+'</td>'
+        +'<td class="muted">'+p.balls+'</td>'
+        +'<td class="muted">'+sr+'</td>'
+        +'<td>'+p.hs+'</td>'
+        +'<td class="muted">'+p.fifties+'/'+p.hundreds+'</td>'
+        +'<td>'+p.fours+'</td>'
+        +'<td style="color:#ef4444;font-weight:600">'+p.sixes+'</td>'
+        +'<td style="color:var(--purple,#a78bfa);font-weight:600">'+p.wickets+'</td>'
+        +'<td class="muted">'+eco+'</td>'
+        +'<td>'+p.catches+'</td>'
+        +'<td style="color:var(--orange);font-weight:700">'+p.fantasyPts+'</td>'
+        +'</tr>';
+    }).join('')+'</tbody></table></div></div>';
+}
+
+function aTeamTrends(){
+  const{teams,matches}=getTeamProgressData();
+  if(!matches.length) return'<div class="empty">No match data</div>';
+
+  // Match-by-match results table
+  let matchTable='<div class="card mb16"><h2>📈 Match-by-Match Points</h2>'
+    +'<div class="tscroll"><table><thead><tr><th>Match</th>'
+    +teams.map(t=>'<th style="font-size:11px;max-width:80px;overflow:hidden;text-overflow:ellipsis">'+t.name+'</th>').join('')
+    +'</tr></thead><tbody>';
+  matches.forEach((m,i)=>{
+    matchTable+='<tr><td class="small" style="white-space:nowrap">'+m.name+'</td>';
+    teams.forEach(t=>{
+      const s=t.series[i];
+      const pts=s?s.pts:0;
+      const cls=pts>0?'pos':pts<0?'neg':'muted';
+      matchTable+='<td class="'+cls+'" style="font-weight:600;font-size:13px">'+(pts>0?'+':'')+pts+'</td>';
+    });
+    matchTable+='</tr>';
+  });
+  // Cumulative row
+  matchTable+='<tr style="border-top:2px solid var(--border2);font-weight:700"><td>Total</td>';
+  teams.forEach(t=>{
+    matchTable+='<td style="color:var(--orange);font-size:14px">'+t.total+'</td>';
+  });
+  matchTable+='</tr></tbody></table></div></div>';
+
+  // Team sparklines (cumulative progress)
+  let sparklines='<div class="card mb16"><h2>📉 Cumulative Progress</h2>'
+    +'<div style="margin-top:12px">';
+  const maxCum=Math.max(...teams.map(t=>t.series.length?t.series[t.series.length-1].cumulative:0),1);
+  const sorted=[...teams].sort((a,b)=>b.total-a.total);
+  const colors=['#f97316','#3b82f6','#10b981','#a78bfa','#ef4444','#f59e0b','#ec4899','#06b6d4','#84cc16','#6366f1'];
+  sorted.forEach((t,ti)=>{
+    const color=colors[ti%colors.length];
+    const pts=t.series.map(s=>s.cumulative);
+    if(!pts.length) return;
+    // SVG sparkline
+    const w=320,h=40,pad=2;
+    const maxY=Math.max(...pts,1);
+    const minY=Math.min(...pts,0);
+    const range=maxY-minY||1;
+    const xStep=pts.length>1?(w-pad*2)/(pts.length-1):0;
+    const points=pts.map((v,i)=>{
+      const x=pad+i*xStep;
+      const y=pad+(1-(v-minY)/range)*(h-pad*2);
+      return x+','+y;
+    }).join(' ');
+    sparklines+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;padding:6px 0;border-bottom:1px solid var(--border)">'
+      +'<span style="width:130px;font-weight:600;font-size:13px;color:'+color+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+t.name+'</span>'
+      +'<svg width="'+w+'" height="'+h+'" style="flex-shrink:0"><polyline points="'+points+'" fill="none" stroke="'+color+'" stroke-width="2" stroke-linejoin="round"/>'
+      +'<circle cx="'+(pad+(pts.length-1)*xStep)+'" cy="'+(pad+(1-(pts[pts.length-1]-minY)/range)*(h-pad*2))+'" r="3" fill="'+color+'"/>'
+      +'</svg>'
+      +'<span style="font-weight:800;font-size:15px;color:'+color+';min-width:50px;text-align:right">'+t.total+'</span>'
+      +'</div>';
+  });
+  sparklines+='</div></div>';
+
+  // Best/worst match per team
+  let extremes='<div class="card"><h2>🎯 Best & Worst Match per Team</h2><div class="tscroll"><table>'
+    +'<thead><tr><th>Team</th><th>Best Match</th><th>Pts</th><th>Worst Match</th><th>Pts</th></tr></thead><tbody>';
+  teams.forEach(t=>{
+    if(!t.series.length) return;
+    const best=t.series.reduce((a,b)=>b.pts>a.pts?b:a,t.series[0]);
+    const worst=t.series.reduce((a,b)=>b.pts<a.pts?b:a,t.series[0]);
+    extremes+='<tr>'
+      +'<td style="font-weight:600">'+t.name+'</td>'
+      +'<td class="small">'+best.match+'</td>'
+      +'<td class="pos" style="font-weight:700">+'+best.pts+'</td>'
+      +'<td class="small">'+worst.match+'</td>'
+      +'<td class="'+(worst.pts<0?'neg':'muted')+'" style="font-weight:700">'+(worst.pts>0?'+':'')+worst.pts+'</td>'
+      +'</tr>';
+  });
+  extremes+='</tbody></table></div></div>';
+
+  return sparklines+matchTable+extremes;
 }
 
 function vAwards(){
