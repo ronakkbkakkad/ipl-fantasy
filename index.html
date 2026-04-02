@@ -1239,7 +1239,7 @@ function parseTabText(txt){
     const {raw,parts}=lines[i];
     if(isSkip(raw)){i++;continue;}
     if(parts.length!==1||isNumericStr(raw)||isSkip(raw)){i++;continue;}
-    const name=raw.replace(/[\u2020\u271D]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
+    const name=cleanPlayerName(raw);
     if(name.length<2){i++;continue;}
     if(i+1>=lines.length){i++;continue;}
     const next=lines[i+1];
@@ -1340,7 +1340,7 @@ function parseESPNText(txt){
 
     // Check if next line is batting stats
     if(i+1<raw.length && isBatStatsLine(raw[i+1])){
-      const name=line.replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
+      const name=cleanPlayerName(line);
       if(name.length<2||isSkip(line)){i++;continue;}
       const statsLine=raw[i+1];
       const parsed=parseESPNBatLine(statsLine);
@@ -1354,7 +1354,7 @@ function parseESPNText(txt){
 
     // Check if next line is bowling stats
     if(i+1<raw.length && isBowlStatsLine(raw[i+1])){
-      const name=line.replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
+      const name=cleanPlayerName(line);
       if(name.length<2||isSkip(line)){i++;continue;}
       const parsed=parseESPNBowlLine(raw[i+1]);
       if(parsed){
@@ -1382,7 +1382,7 @@ function parseESPNBatLine(statsLine){
   const nums=statsLine.slice(0,srStart).replace(/\D/g,'');
   if(!nums) return null;
 
-  const dismissal=statsLine.slice(0,srStart).replace(/\d/g,'').replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
+  const dismissal=cleanPlayerName(statsLine.slice(0,srStart).replace(/\d/g,''));
   const isNotOut=/not\s*out/i.test(dismissal);
 
   // Duck handling (sr=0 or all-zero stats)
@@ -1483,7 +1483,7 @@ function parseCricbuzzText(txt){
   for(let i=0;i<raw.length;i++){
     const m=raw[i].match(singleLineBowlRe)||raw[i].match(singleLineBowlTab);
     if(!m) continue;
-    const name=m[1].replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
+    const name=cleanPlayerName(m[1]);
     if(name.length<2||isNumeric(name)||isSkip(name)) continue;
     bowling.push({name,team:'',overs:m[2],maidens:parseInt(m[3])||0,wicketMaidens:0,
       runs:parseInt(m[4])||0,wickets:parseInt(m[5])||0,economy:parseFloat(m[6])||0,hasHattrick:false});
@@ -1495,7 +1495,7 @@ function parseCricbuzzText(txt){
   // O is like "4" or "3.2" (can have decimal), M/R/W/NB/WD are integers, ECO is decimal
   for(let i=0;i<raw.length-7;i++){
     if(usedLines.has(i)||isSkip(raw[i])||isNumeric(raw[i])) continue;
-    const name=raw[i].replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
+    const name=cleanPlayerName(raw[i]);
     if(name.length<2) continue;
     // Check lines i+1..i+7: O M R W NB WD ECO
     const o=raw[i+1], m=raw[i+2], r=raw[i+3], w=raw[i+4], nb=raw[i+5], wd=raw[i+6], eco=raw[i+7];
@@ -1517,7 +1517,7 @@ function parseCricbuzzText(txt){
   for(let i=0;i<raw.length;i++){
     if(usedLines.has(i)||isSkip(raw[i])||isNumeric(raw[i])) continue;
     const nameLine=raw[i];
-    const name=nameLine.replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
+    const name=cleanPlayerName(nameLine);
     if(name.length<2) continue;
 
     // Case A: next line is dismissal, then R B 4s 6s SR
@@ -1538,7 +1538,7 @@ function parseCricbuzzText(txt){
     // Case B: name has inline dismissal on same line ("de Kock  c X b Y"), then R B 4s 6s SR
     const inlineDism=nameLine.match(/^(.+?)\s{2,}((?:c\s+|st\s+|b\s+|lbw\b|run\s*out|not\s*out|retired|hit\s*wicket).+)$/i);
     if(inlineDism && i+5<raw.length && isInt(raw[i+1]) && isInt(raw[i+2])){
-      const cleanName=inlineDism[1].replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();
+      const cleanName=inlineDiscleanPlayerName(m[1]);
       const dismissal=inlineDism[2].trim();
       const isNotOut=/not\s*out/i.test(dismissal);
       const runs=parseInt(raw[i+1])||0;
@@ -1563,14 +1563,31 @@ function parseCricbuzzText(txt){
   return{team1:'',team2:'',winner,mom,batting,bowling,fielding};
 }
 
+// Clean player name: strip †, ✝, and any bracket suffixes like (c), (wk), (C & Wk), (c/wk) etc.
+function cleanPlayerName(name){
+  if(!name) return '';
+  return name.replace(/[†✝]/g,'').replace(/\s*\([^)]*\)\s*$/g,'').trim();
+}
+
 function extractFielding(dismissal,fieldMap){
   if(!dismissal) return;
+  // Handle "c and b PlayerX" (caught and bowled — bowler gets catch credit)
+  const cabMatch=dismissal.match(/^c\s+(?:and|&)\s+b\s+(.+)/i);
+  if(cabMatch){
+    const fn=cleanPlayerName(cabMatch[1]);
+    if(fn&&fn.toLowerCase()!=='sub'&&fn.length>1){
+      if(!fieldMap[fn])fieldMap[fn]={catches:0,stumpings:0,runOuts:0};
+      fieldMap[fn].catches++;
+    }
+    return; // handled, don't fall through to regular catch
+  }
+  // Regular catch: "c PlayerX b PlayerY"
   const cMatch=dismissal.match(/^c\s+(.+?)\s+b\s+/i);
-  if(cMatch){const fn=cMatch[1].replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();if(fn&&fn.toLowerCase()!=='sub'&&fn.length>1){if(!fieldMap[fn])fieldMap[fn]={catches:0,stumpings:0,runOuts:0};fieldMap[fn].catches++;}}
+  if(cMatch){const fn=cleanPlayerName(cMatch[1]);if(fn&&fn.toLowerCase()!=='sub'&&fn.toLowerCase()!=='and'&&fn.length>1){if(!fieldMap[fn])fieldMap[fn]={catches:0,stumpings:0,runOuts:0};fieldMap[fn].catches++;}}
   const stMatch=dismissal.match(/^st\s+(.+?)\s+b\s+/i);
-  if(stMatch){const fn=stMatch[1].replace(/[†✝]/g,'').replace(/\s*\(c\)|\s*\(wk\)/gi,'').trim();if(fn&&fn.length>1){if(!fieldMap[fn])fieldMap[fn]={catches:0,stumpings:0,runOuts:0};fieldMap[fn].stumpings++;}}
+  if(stMatch){const fn=cleanPlayerName(stMatch[1]);if(fn&&fn.length>1){if(!fieldMap[fn])fieldMap[fn]={catches:0,stumpings:0,runOuts:0};fieldMap[fn].stumpings++;}}
   const roMatch=dismissal.match(/run\s*out\s*\(([^)]+)\)/i);
-  if(roMatch){roMatch[1].split('/').forEach(n=>{const fn=n.replace(/[†✝]/g,'').trim();if(fn&&fn.length>1){if(!fieldMap[fn])fieldMap[fn]={catches:0,stumpings:0,runOuts:0};fieldMap[fn].runOuts++;}});}
+  if(roMatch){roMatch[1].split('/').forEach(n=>{const fn=cleanPlayerName(n);if(fn&&fn.length>1){if(!fieldMap[fn])fieldMap[fn]={catches:0,stumpings:0,runOuts:0};fieldMap[fn].runOuts++;}});}
 }
 
 function vAddStep2(){
