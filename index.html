@@ -491,7 +491,7 @@ function calcPlayerTotal(pdata, isC=false, isVC=false, isSuperSub=false){
   if(pdata.fielding){const r=scoreFielding(pdata.fielding);base+=r.pts;bd.push(...r.bd);}
   const final=applyRole(base,isC,isVC,isSuperSub);
   const bonus=final-base;
-  if(bonus>0){
+  if(bonus!==0){
     if(isSuperSub&&isC) bd.push({l:'⚡ Super Sub Captain ×4',p:bonus,c:'super'});
     else if(isSuperSub&&isVC) bd.push({l:'⚡ Super Sub VC ×3.5',p:bonus,c:'super'});
     else if(isSuperSub) bd.push({l:'⚡ Super Sub ×3',p:bonus,c:'super'});
@@ -501,13 +501,67 @@ function calcPlayerTotal(pdata, isC=false, isVC=false, isSuperSub=false){
   return{pts:final,bd};
 }
 
+/* Compute the XI, captain, and VC as they were at the time of a given match.
+   Strategy: start with current state, reverse-apply any swaps assigned to matches
+   AFTER this match. A swap assigned to matchId M means "effective FROM match M onwards". */
+function getRosterAtMatch(team, targetMatchId){
+  const matchOrder=S.matches.map(m=>m.id);
+  const targetIdx=matchOrder.indexOf(targetMatchId);
+  if(targetIdx<0) return{players:[...(team.players||[])], captain:team.currentCaptain, vc:team.currentVc};
+
+  // Start from current roster and reverse-apply swaps that happened for matches AFTER target
+  let players=[...(team.players||[])];
+  let captain=team.currentCaptain;
+  let vc=team.currentVc;
+
+  const history=(team.swaps?.history||[]).filter(s=>!s.isWrong);
+  // Swaps assigned to matches AFTER target → reverse them
+  // Sort swaps by match index DESC, then by date DESC (most recent first)
+  const swapsToReverse=history.map((s,idx)=>{
+    const mIdx=s.matchId?matchOrder.indexOf(s.matchId):-1;
+    return{...s,_mIdx:mIdx,_histIdx:idx};
+  }).filter(s=>{
+    // If swap has no matchId or its match comes AFTER target, reverse it
+    if(s._mIdx<0) return false; // no match assigned — leave alone
+    return s._mIdx>targetIdx;
+  }).sort((a,b)=>{
+    if(b._mIdx!==a._mIdx) return b._mIdx-a._mIdx;
+    return b._histIdx-a._histIdx;
+  });
+
+  for(const sw of swapsToReverse){
+    if(sw.type==='player'){
+      // Reverse: remove 'to', add back 'from'
+      players=players.filter(p=>p.name!==sw.to);
+      if(sw.from){
+        const sq=(S.squad||[]).find(p=>p.name===sw.from&&p.ownerTeam===team.name);
+        players.push({id:gid(),name:sw.from,iplTeam:sq?.iplTeam||'',role:sw.outRole||sq?.role||''});
+      }
+      if(captain===sw.to) captain=sw.from;
+      if(vc===sw.to) vc=sw.from;
+    } else if(sw.type==='captain'){
+      if(captain===sw.to) captain=sw.from;
+    } else if(sw.type==='vc'){
+      if(vc===sw.to) vc=sw.from;
+    }
+  }
+
+  return{players, captain, vc};
+}
+
 function processTeamMatch(team, sc, matchId){
   let total=0; const players=[];
   // Get super sub for this team in this match
   const match=S.matches.find(m=>m.id===matchId);
   const superSubName=match?.superSubs?.[team.id]||null;
 
-  for(const rp of team.players){
+  // Get roster as it was at the time of THIS match (not current)
+  const roster=getRosterAtMatch(team, matchId);
+  const rosterPlayers=roster.players;
+  const matchCaptain=roster.captain;
+  const matchVc=roster.vc;
+
+  for(const rp of rosterPlayers){
     const bat = findPlayerInScorecard(rp.name, sc.batting);
     const bowl = findPlayerInScorecard(rp.name, sc.bowling);
     const field = findPlayerInScorecard(rp.name, sc.fielding);
@@ -516,8 +570,8 @@ function processTeamMatch(team, sc, matchId){
     if(bat) pd.batting=bat;
     if(bowl) pd.bowling=bowl;
     if(field) pd.fielding=field;
-    const isC=team.currentCaptain===rp.name;
-    const isVC=team.currentVc===rp.name;
+    const isC=matchCaptain===rp.name;
+    const isVC=matchVc===rp.name;
     const isSuperSub=!!superSubName && rp.name.toLowerCase()===superSubName.toLowerCase();
     const{pts,bd}=calcPlayerTotal(pd,isC,isVC,isSuperSub);
     total+=pts;
@@ -525,7 +579,7 @@ function processTeamMatch(team, sc, matchId){
   }
   const mom=sc.match?.mom;
   if(mom){
-    const hasMom=team.players.some(p=>p.name.toLowerCase()===mom.toLowerCase().trim());
+    const hasMom=rosterPlayers.some(p=>p.name.toLowerCase()===mom.toLowerCase().trim());
     if(hasMom){
       const mt=sc._matchType||'league';
       const mp=mt==='final'?100:mt==='semifinal'?75:50;
@@ -539,7 +593,7 @@ function processTeamMatch(team, sc, matchId){
     total+=pp;
     players.push({name:'Prediction',isC:false,isVC:false,isSuperSub:false,pts:pp,bd:[{l:pred.correct?'Correct prediction':'Wrong prediction',p:pp,c:'pred'}]});
   }
-  return{total,players};
+  return{total,players,capUsed:matchCaptain,vcUsed:matchVc};
 }
 
 function teamTotal(team){
@@ -1827,17 +1881,15 @@ async function submitMatch(){
   }
 
   for(const t of S.teams){
-    const cap=t.currentCaptain;
-    const vc=t.currentVc;
     // Auto win bonus: if this fantasy team's IPL team matches the match winner
     const isWin = t.iplTeam && winner && t.iplTeam.toLowerCase()===winner.toLowerCase();
     const isAb=document.getElementById(`mab-${t.id}`)?.checked;
     const sc={...pendingSC,match:{...pendingSC.match,winner,mom},id:matchRec.id};
-    const{total,players}=processTeamMatch(t,sc,matchRec.id);
+    const{total,players,capUsed,vcUsed}=processTeamMatch(t,sc,matchRec.id);
     let extra=0,extraP=[];
     if(isAb){extra+=40;extraP.push({name:'Match abandoned',pts:40,bd:[{l:'Abandoned +40',p:40,c:'bonus'}]});}
     else if(isWin){extra+=75;extraP.push({name:`${t.iplTeam} won +75`,pts:75,bd:[{l:`${t.iplTeam} win bonus +75`,p:75,c:'bonus'}]});}
-    matchRec.teamScores[t.id]={total:total+extra,captain:cap,vc,players:[...players,...extraP]};
+    matchRec.teamScores[t.id]={total:total+extra,captain:capUsed,vc:vcUsed,players:[...players,...extraP]};
   }
 
   pendingSC=null;
@@ -2792,11 +2844,18 @@ async function logSwap(tid){
   t.swaps[type]=(t.swaps[type]||0)+1;
 
   const mname=S.matches.find(m=>m.id===mid)?.name||'Next match';
+  // If no explicit match chosen, use the earliest uncompleted match
+  let effectiveMid=mid;
+  if(!effectiveMid){
+    const nextMatch=S.matches.find(m=>!m.completed);
+    if(nextMatch){effectiveMid=nextMatch.id;}
+  }
+  const effectiveName=effectiveMid?S.matches.find(m=>m.id===effectiveMid)?.name||mname:mname;
   const outPlayer=t.players.find(p=>p.name===from);
   const inPlayer=(S.squad||[]).find(p=>p.name===to&&p.ownerTeam===t.name);
   const newRole=inPlayer?.role||outPlayer?.role||'';
 
-  t.swaps.history.push({type,from,to,match:mname,matchId:mid,matchDate,isWrong:isWrongFinal,date:new Date().toISOString(),newRole});
+  t.swaps.history.push({type,from,to,match:effectiveName,matchId:effectiveMid,matchDate,isWrong:isWrongFinal,date:new Date().toISOString(),newRole});
 
   if(!isWrongFinal){
     if(type==='player'){
@@ -3555,18 +3614,18 @@ async function reverseSwap(tid, swapIdx){
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   const h=t.swaps?.history;if(!h||swapIdx<0||swapIdx>=h.length)return;
   const sw=h[swapIdx];
-  if(!confirm(`Reverse swap: ${sw.from||sw.type} → ${sw.to}?\nThis will undo the roster change and refund the swap.`)) return;
-  if(!sw.isWrong){
-    if(sw.type==='player'){
-      t.players=t.players.filter(p=>p.name!==sw.to);
-      if(sw.from) t.players.push({id:gid(),name:sw.from,iplTeam:'',role:sw.outRole||''});
-    } else if(sw.type==='captain'){t.currentCaptain=sw.from||t.currentCaptain;}
-    else if(sw.type==='vc'){t.currentVc=sw.from||t.currentVc;}
-    if(!sw.isFree && t.swaps[sw.type]>0) t.swaps[sw.type]--;
+  if(!confirm(`Reverse swap: ${sw.from||sw.type} → ${sw.to}?\nThis refunds the swap and removes it from history. Current XI/captain are NOT changed — use "Pick XI" to adjust the roster if needed.`)) return;
+
+  // Just remove from history and refund the swap counter.
+  // Do NOT try to reverse-apply to current roster because later swaps may depend on this one.
+  // The roster-at-match calculation uses only non-deleted swaps, so removing this entry
+  // automatically fixes point-in-time calculations going forward.
+  if(!sw.isWrong && !sw.isFree && t.swaps[sw.type]>0){
+    t.swaps[sw.type]--;
   }
   h.splice(swapIdx,1);
   await saveS();render();
-  alert('✅ Swap reversed.');
+  alert('✅ Swap removed from history. Swap counter refunded. If the current XI needs adjusting, use "Pick XI" on the team.');
 }
 
 async function reversePred(tid, mid){
