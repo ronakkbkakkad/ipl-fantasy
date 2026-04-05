@@ -225,9 +225,41 @@ label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
 <script>
 const ADMIN_PASSWORD = "ipl2025admin";
 const WORKER_URL = "https://ipl-fantasy-proxy.ronakbkakkad.workers.dev";
+const SESSION_HOURS = 24;
+const SESSION_MS = SESSION_HOURS * 60 * 60 * 1000;
 
 let isAdmin = false;
 let loggedInTeamId = null; // id of team owner currently logged in (null if not logged in)
+
+// ── Session persistence ──
+function saveSession(){
+  try{
+    const s = {
+      isAdmin,
+      loggedInTeamId,
+      expiresAt: Date.now() + SESSION_MS
+    };
+    localStorage.setItem('ipl_fantasy_session', JSON.stringify(s));
+  }catch(e){/* ignore storage errors */}
+}
+
+function loadSession(){
+  try{
+    const raw = localStorage.getItem('ipl_fantasy_session');
+    if(!raw) return;
+    const s = JSON.parse(raw);
+    if(!s.expiresAt || Date.now() > s.expiresAt){
+      localStorage.removeItem('ipl_fantasy_session');
+      return;
+    }
+    isAdmin = !!s.isAdmin;
+    loggedInTeamId = s.loggedInTeamId || null;
+  }catch(e){/* ignore */}
+}
+
+function clearSession(){
+  try{ localStorage.removeItem('ipl_fantasy_session'); }catch(e){}
+}
 
 function getCurrentTeam(){
   if(!loggedInTeamId) return null;
@@ -288,14 +320,18 @@ function doTeamLogin(){
   if(!t.password){alert('This team has no password set. Ask admin to set one.');return;}
   if(t.password!==pw){alert('❌ Wrong password.');return;}
   loggedInTeamId = tid;
+  saveSession();
   closeModal('team-login-modal');
   setTeamLoginUI();
   render();
-  alert('✅ Logged in as '+t.name);
+  alert('✅ Logged in as '+t.name+' (24hr session)');
 }
 
 function teamLogout(){
   loggedInTeamId = null;
+  clearSession();
+  // Keep admin session if still active
+  if(isAdmin) saveSession();
   setTeamLoginUI();
   render();
 }
@@ -304,9 +340,10 @@ function adminLogin() {
   const pw = prompt("🔒 Enter admin password:");
   if (pw === ADMIN_PASSWORD) {
     isAdmin = true;
+    saveSession();
     setAdminUI(true);
     setTeamLoginUI();
-    alert("✅ Logged in as admin. You can now add teams, matches, and more.");
+    alert("✅ Logged in as admin (24hr session). You can now add teams, matches, and more.");
   } else if (pw !== null) {
     alert("❌ Wrong password.");
   }
@@ -317,6 +354,7 @@ function checkAdmin(action) {
   const pw = prompt("🔒 Admin password required to " + action + ":");
   if (pw === ADMIN_PASSWORD) {
     isAdmin = true;
+    saveSession();
     setAdminUI(true);
     setTeamLoginUI();
     return true;
@@ -327,6 +365,9 @@ function checkAdmin(action) {
 
 function adminLogout() {
   isAdmin = false;
+  clearSession();
+  // Keep team login if still logged in
+  if(loggedInTeamId) saveSession();
   setAdminUI(false);
   setTeamLoginUI();
   render();
@@ -365,9 +406,11 @@ async function loadS() {
     if(!S.squad) S.squad = [];
     // Normalize any mismatched roles in existing squad data
     S.squad.forEach(function(p){ if(p.role) p.role = normalizeRole(p.role); });
+    return true;
   } catch(e) {
     console.error("Load error, using empty state:", e);
     S = defState();
+    return false;
   }
 }
 
@@ -3868,9 +3911,18 @@ document.getElementById('nav').addEventListener('click',e=>{
 (async()=>{
   const app=document.getElementById('app');
   app.innerHTML='<div class="empty"><div class="spinner" style="width:32px;height:32px;border-width:3px"></div><p class="muted mt12">Connecting to database…</p></div>';
-  await loadS();
+  loadSession();
+  const loaded = await loadS();
+  // Verify loggedInTeamId still references an existing team — only if load succeeded
+  // (otherwise a transient Firebase failure would wrongly clear the session)
+  if(loaded && loggedInTeamId && !S?.teams?.find(t=>t.id===loggedInTeamId)){
+    loggedInTeamId = null;
+    clearSession();
+    if(isAdmin) saveSession();
+  }
   const ind=document.getElementById('sync-indicator');
   if(ind){ ind.textContent='●'; ind.className='badge b-green'; ind.title='Connected to Firebase'; }
+  setAdminUI(isAdmin);
   setTeamLoginUI();
   render();
 })();
