@@ -372,7 +372,8 @@ async function loadS() {
 }
 
 async function saveS() {
-  if (!isAdmin) return;
+  // Allow admin OR logged-in team owner to save
+  if (!isAdmin && !loggedInTeamId) return;
   const ind = document.getElementById('sync-indicator');
   if(ind){ ind.textContent='↑'; ind.className='badge b-orange'; }
   try {
