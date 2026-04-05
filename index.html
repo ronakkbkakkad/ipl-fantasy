@@ -2469,6 +2469,19 @@ function matchStartLabel(m){
   return m.date+' '+t;
 }
 
+// Returns the next match that has NOT started yet (start time in future, not completed)
+function getNextUpcomingMatch(){
+  const now=new Date();
+  const upcoming=getMatchesSorted().filter(m=>{
+    if(m.completed) return false;
+    if(!m.date) return true; // no date = still open
+    const st=m.startTime||'19:30';
+    const dt=new Date(m.date+'T'+st+':00');
+    return dt>now;
+  });
+  return upcoming[0]||null;
+}
+
 function vTeams(){
   const currentTeam=getCurrentTeam();
   if (!isAdmin && !currentTeam) return vTeamsPublic();
@@ -2851,12 +2864,13 @@ function vSwaps(){
   const currentTeam=getCurrentTeam();
   // Non-admin team owners see only their own team. Admin sees all.
   const shownTeams = isAdmin ? S.teams : (currentTeam ? [currentTeam] : S.teams);
+  const nextMatch=getNextUpcomingMatch();
   return`<div class="fb mb16"><h1>Swap Tracker</h1>${currentTeam?`<span class="badge b-blue">👤 ${currentTeam.name}</span>`:''}</div>
   <div class="alert al-info mb12">
     <strong>Swap Rules:</strong> Season limits: <strong>25 player swaps · 7 captain · 7 VC</strong>.
     Wrong swap = <strong class="neg">−200 pts</strong> and still counts against your season total.
     ${!isAdmin&&!currentTeam?'<br/><strong>Log in as your team</strong> to log swaps.':''}
-    ${!isAdmin&&currentTeam?'<br/><span class="muted small">Only admin can undo a logged swap.</span>':''}
+    ${!isAdmin&&currentTeam?`<br/><span class="muted small">You can only swap for the next upcoming match. Only admin can undo a logged swap.</span>${nextMatch?`<br/>🎯 <strong>Next match:</strong> ${nextMatch.name} — ${matchStartLabel(nextMatch)}`:'<br/><span class="neg">⚠️ No upcoming match available.</span>'}`:''}
   </div>
   ${shownTeams.map(t=>swapCard(t)).join('')}
   <div id="mc"></div>`;
@@ -2866,10 +2880,11 @@ function swapCard(t){
   const sw=t.swaps||{player:0,captain:0,vc:0,history:[]};
   const canLog = canEditTeam(t.id);
   const isOwn = loggedInTeamId===t.id;
+  const ownerCanLog = isAdmin || (canLog && getNextUpcomingMatch());
   return`<div class="card mb12">
     <div class="fb mb12">
       <span style="font-weight:700">${t.name}${isOwn?' <span class="badge b-blue" style="font-size:9px">YOU</span>':''}</span>
-      ${canLog?`<button class="btn btn-primary btn-sm" onclick="showSwapModal('${t.id}')">+ Log Swap</button>`:''}
+      ${ownerCanLog?`<button class="btn btn-primary btn-sm" onclick="showSwapModal('${t.id}')">+ Log Swap</button>`:''}
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">
       ${[{l:'Player Swaps',u:sw.player||0,max:25},{l:'Captain Swaps',u:sw.captain||0,max:7},{l:'VC Swaps',u:sw.vc||0,max:7}].map(x=>`
@@ -2904,6 +2919,22 @@ function showSwapModal(tid){
     if(h.type==='player' && h.from) playerSwapCount[h.from]=(playerSwapCount[h.from]||0)+1;
   }
   const pLeft=25-(sw.player||0), cLeft=7-(sw.captain||0), vcLeft=7-(sw.vc||0);
+
+  // Team owners can only swap for the next upcoming match
+  const nextMatch=getNextUpcomingMatch();
+  if(!isAdmin && !nextMatch){
+    alert('❌ No upcoming match available for swaps. Next match must be scheduled and its start time must be in the future.');
+    return;
+  }
+
+  // Build the match selector
+  let matchSelectorHtml;
+  if(isAdmin){
+    matchSelectorHtml=`<select id="sw-match"><option value="">Next match</option>${getMatchesSorted().map(m=>`<option value="${m.id}"${m.id===nextMatch?.id?' selected':''}>${m.name}${m.id===nextMatch?.id?' (next)':''}</option>`).join('')}</select>`;
+  } else {
+    // Team owner: locked to next match
+    matchSelectorHtml=`<input type="hidden" id="sw-match" value="${nextMatch.id}" /><div class="badge b-green" style="font-size:12px;padding:8px 12px">🎯 ${nextMatch.name} — starts ${matchStartLabel(nextMatch)}</div>`;
+  }
 
   addModal('swap-modal',`<div class="mhead"><h2>Log Swap — ${t.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('swap-modal')">✕</button></div>
   <div class="alert al-info mb12 small">Remaining: <strong>${pLeft} player</strong> · <strong>${cLeft} captain</strong> · <strong>${vcLeft} VC</strong>. Wrong swap = −200 pts.</div>
@@ -2940,9 +2971,9 @@ function showSwapModal(tid){
     </div>
   </div>
   <div class="fg"><label>For Match</label>
-    <select id="sw-match"><option value="">Next match</option>${getMatchesSorted().map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}</select>
+    ${matchSelectorHtml}
   </div>
-  <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sw-wrong" style="width:auto" /> Mark as WRONG swap (−200 pts penalty)</label></div>
+  <div class="fg">${isAdmin?`<label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sw-wrong" style="width:auto" /> Mark as WRONG swap (−200 pts penalty)</label>`:`<input type="hidden" id="sw-wrong" />`}</div>
   <button class="btn btn-primary" onclick="logSwap('${tid}')">Log Swap</button>`);
 }
 
@@ -2967,6 +2998,13 @@ async function logSwap(tid){
   const isWrong=document.getElementById('sw-wrong')?.checked;
   if(!to){alert(type==='player'?'Select a player to swap in':'Select the new captain/VC');return;}
   if(!t.swaps)t.swaps={player:0,captain:0,vc:0,history:[]};
+
+  // Owner constraint: swap must be for the next upcoming match
+  if(!isAdmin){
+    const nextMatch=getNextUpcomingMatch();
+    if(!nextMatch){alert('❌ No upcoming match available. Swap rejected.');return;}
+    if(mid!==nextMatch.id){alert('❌ As team owner, you can only swap for the next match: '+nextMatch.name);return;}
+  }
 
   const todayStr=new Date().toISOString().split('T')[0];
   const matchDate=S.matches.find(m=>m.id===mid)?.date||todayStr;
