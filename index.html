@@ -3122,7 +3122,7 @@ function vPredictions(){
 
   ${lockedNotCompleted.length ? `
     <div class="sep"></div>
-    <h2 style="margin:16px 0 12px">⏰ Locked — Awaiting Result</h2>
+    <h2 style="margin:16px 0 12px">⏰ Locked — Awaiting Result${isAdmin?' <span class="badge b-orange" style="font-size:10px">Admin can still edit</span>':''}</h2>
     ${lockedNotCompleted.map(m=>predCardInput(m, false)).join('')}
   ` : ''}
 
@@ -3153,7 +3153,9 @@ function predCardInput(m, canInput){
         const p=t.predictions?.[m.id];
         const correct=p&&m.winner?p.prediction?.toLowerCase()===m.winner?.toLowerCase():null;
         const isOwnTeam = currentTeamId===t.id;
-        const canEditThis = !m.winner && canInput && (isAdmin || isOwnTeam);
+        // Admin can edit any prediction until the match is completed (score uploaded / winner set).
+        // Team owners can edit only before match start (canInput=true) and only their own team.
+        const canEditThis = !m.completed && !m.winner && (isAdmin || (canInput && isOwnTeam));
         return`<tr${isOwnTeam?' style="background:var(--orange-dim,rgba(245,166,35,0.08))"':''}>
           <td style="font-weight:600">${t.name}${isOwnTeam?' <span class="badge b-blue" style="font-size:9px">YOU</span>':''}</td>
           <td>${p
