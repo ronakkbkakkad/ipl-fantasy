@@ -195,6 +195,8 @@ label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
       <button class="admin-only" data-v="awards" style="display:none">Awards</button>
     </nav>
     <div class="header-right">
+      <button id="team-login-btn" class="btn btn-secondary btn-sm" onclick="teamLogin()" style="font-size:12px">Team Login</button>
+      <span id="team-logged-label" class="badge b-blue" style="display:none;font-size:11px;cursor:pointer" onclick="teamLogout()" title="Click to log out">👤 <span id="team-logged-name"></span> ✕</span>
       <button id="login-btn" class="btn btn-secondary btn-sm" onclick="adminLogin()" style="font-size:12px">Admin Login</button>
       <button id="logout-btn" class="btn btn-ghost btn-sm" onclick="adminLogout()" style="display:none;font-size:12px;color:var(--green)">Admin ✕</button>
       <span id="sync-indicator" class="badge b-gray" style="font-size:10px" title="Database connection">●</span>
@@ -225,14 +227,77 @@ const ADMIN_PASSWORD = "ipl2025admin";
 const WORKER_URL = "https://ipl-fantasy-proxy.ronakbkakkad.workers.dev";
 
 let isAdmin = false;
+let loggedInTeamId = null; // id of team owner currently logged in (null if not logged in)
+
+function getCurrentTeam(){
+  if(!loggedInTeamId) return null;
+  return S?.teams?.find(t=>t.id===loggedInTeamId)||null;
+}
+
+function canEditTeam(teamId){
+  // Admin can edit any team; team owner can only edit their own
+  return isAdmin || loggedInTeamId===teamId;
+}
 
 function setAdminUI(on) {
   const loginBtn = document.getElementById('login-btn');
   const logoutBtn = document.getElementById('logout-btn');
+  const teamLoginBtn = document.getElementById('team-login-btn');
+  const teamLoggedLabel = document.getElementById('team-logged-label');
   if (loginBtn) loginBtn.style.display = on ? 'none' : 'inline-flex';
   if (logoutBtn) logoutBtn.style.display = on ? 'inline-flex' : 'none';
+  // Hide team login if admin is on
+  if (teamLoginBtn) teamLoginBtn.style.display = (on||loggedInTeamId)?'none':'inline-flex';
+  if (teamLoggedLabel) teamLoggedLabel.style.display = (!on&&loggedInTeamId)?'inline-flex':'none';
   // Show/hide admin tabs in both desktop nav and mobile drawer
   document.querySelectorAll('.admin-only').forEach(el => el.style.display = on ? '' : 'none');
+}
+
+function setTeamLoginUI(){
+  const teamLoginBtn = document.getElementById('team-login-btn');
+  const teamLoggedLabel = document.getElementById('team-logged-label');
+  const teamLoggedName = document.getElementById('team-logged-name');
+  const t = getCurrentTeam();
+  if(teamLoginBtn) teamLoginBtn.style.display = (isAdmin||t)?'none':'inline-flex';
+  if(teamLoggedLabel) teamLoggedLabel.style.display = (!isAdmin&&t)?'inline-flex':'none';
+  if(teamLoggedName) teamLoggedName.textContent = t?t.name:'';
+}
+
+function teamLogin(){
+  if(!S?.teams?.length){alert('No teams created yet.');return;}
+  // Show team selection modal
+  const teamOpts = S.teams.map(t=>`<option value="${t.id}">${t.name}${t.owner?' ('+t.owner+')':''}</option>`).join('');
+  const html = `<div class="mhead"><h2>🔑 Team Owner Login</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('team-login-modal')">✕</button></div>
+  <div class="alert al-info mb12 small">Log in as a team owner to manage your swaps, predictions, and XI. Admin can override everything.</div>
+  <div class="fg"><label>Select Your Team</label>
+    <select id="tlogin-team"><option value="">— Choose Team —</option>${teamOpts}</select>
+  </div>
+  <div class="fg"><label>Password</label><input type="password" id="tlogin-pw" placeholder="Team password" onkeydown="if(event.key==='Enter')doTeamLogin()" /></div>
+  <div class="fc g8"><button class="btn btn-primary" onclick="doTeamLogin()">Log In</button></div>
+  <p class="muted small mt8">Don't have a password? Ask the admin to set one.</p>`;
+  addModal('team-login-modal',html);
+  setTimeout(()=>document.getElementById('tlogin-team')?.focus(),100);
+}
+
+function doTeamLogin(){
+  const tid = document.getElementById('tlogin-team')?.value;
+  const pw = document.getElementById('tlogin-pw')?.value;
+  if(!tid){alert('Select your team');return;}
+  const t = S.teams.find(x=>x.id===tid);
+  if(!t){alert('Team not found');return;}
+  if(!t.password){alert('This team has no password set. Ask admin to set one.');return;}
+  if(t.password!==pw){alert('❌ Wrong password.');return;}
+  loggedInTeamId = tid;
+  closeModal('team-login-modal');
+  setTeamLoginUI();
+  render();
+  alert('✅ Logged in as '+t.name);
+}
+
+function teamLogout(){
+  loggedInTeamId = null;
+  setTeamLoginUI();
+  render();
 }
 
 function adminLogin() {
@@ -240,6 +305,7 @@ function adminLogin() {
   if (pw === ADMIN_PASSWORD) {
     isAdmin = true;
     setAdminUI(true);
+    setTeamLoginUI();
     alert("✅ Logged in as admin. You can now add teams, matches, and more.");
   } else if (pw !== null) {
     alert("❌ Wrong password.");
@@ -252,6 +318,7 @@ function checkAdmin(action) {
   if (pw === ADMIN_PASSWORD) {
     isAdmin = true;
     setAdminUI(true);
+    setTeamLoginUI();
     return true;
   }
   if (pw !== null) alert("❌ Wrong password.");
@@ -261,6 +328,7 @@ function checkAdmin(action) {
 function adminLogout() {
   isAdmin = false;
   setAdminUI(false);
+  setTeamLoginUI();
   render();
 }
 
@@ -938,10 +1006,12 @@ function vAddCreate(){
     </div>
     <div class="fr">
       <div class="fg"><label>Date</label><input type="date" id="md" value="${new Date().toISOString().split('T')[0]}" /></div>
+      <div class="fg"><label>Start Time <span class="muted small">(24hr)</span></label><input type="time" id="mst" value="19:30" /></div>
       <div class="fg"><label>Match Type</label>
         <select id="mt"><option value="league">League Stage</option><option value="semifinal">Semi-Final</option><option value="final">Final</option></select>
       </div>
     </div>
+    <div class="alert al-info mb8 small">⏰ Predictions lock at start time. Common times: 15:30 (afternoon), 19:30 (evening).</div>
     <button class="btn btn-primary mt8" onclick="createUpcomingMatch()">📅 Create Match & Open Predictions</button>
   </div>`;
 }
@@ -960,13 +1030,14 @@ async function createUpcomingMatch(){
   if(!checkAdmin('create a match')) return;
   const name=document.getElementById('mn')?.value.trim();
   const date=document.getElementById('md')?.value;
+  const startTime=document.getElementById('mst')?.value||'19:30';
   const type=document.getElementById('mt')?.value;
   if(!name){alert('Match name required');return;}
-  S.matches.push({id:gid(),name,date,type,completed:false,teamScores:{},winner:'',mom:''});
+  S.matches.push({id:gid(),name,date,startTime,type,completed:false,teamScores:{},winner:'',mom:''});
   await saveS();
   addView='menu';
   render();
-  alert(`✅ "${name}" created! Predictions are now open.`);
+  alert(`✅ "${name}" created! Predictions open until ${date} ${startTime}.`);
 }
 
 let scTab = 'text'; // 'text' | 'manual' | 'ai'
@@ -2361,12 +2432,31 @@ function hasMatchStarted() {
   return S.matches.filter(m=>m.completed).length >= 2;
 }
 
+// Returns true if predictions for a match are locked (past start time or completed)
+function isPredictionLocked(m){
+  if(!m) return true;
+  if(m.completed) return true;
+  if(!m.date) return false; // no date = not locked
+  const startTime = m.startTime || '19:30';
+  const matchDateTime = new Date(m.date+'T'+startTime+':00');
+  return new Date() >= matchDateTime;
+}
+
+function matchStartLabel(m){
+  if(!m?.date) return '';
+  const t = m.startTime || '19:30';
+  return m.date+' '+t;
+}
+
 function vTeams(){
-  if (!isAdmin) return vTeamsPublic();
-  return`<div class="fb mb16"><h1>👥 Teams — Playing XI</h1><button class="btn btn-primary" onclick="showAddTeam()">+ Add Team</button></div>
+  const currentTeam=getCurrentTeam();
+  if (!isAdmin && !currentTeam) return vTeamsPublic();
+  // Team owner sees only their own team in editable view. Admin sees all.
+  const shownTeams = isAdmin ? S.teams : [currentTeam];
+  return`<div class="fb mb16"><h1>👥 Teams — Playing XI</h1>${isAdmin?'<button class="btn btn-primary" onclick="showAddTeam()">+ Add Team</button>':currentTeam?`<span class="badge b-blue">👤 ${currentTeam.name}</span>`:''}</div>
   <div class="alert al-info mb12 small">Playing XI (4 BAT · 4 BOWL · 2 AR · 1 WK · Max 4 OS). AR can fill BAT/BOWL slots · WK can fill BAT slot.</div>
-  ${S.teams.length===0?`<div class="empty"><div class="icon">👥</div><h2>No teams yet</h2><button class="btn btn-primary" onclick="showAddTeam()">Add First Team</button></div>`
-  :S.teams.map(t=>teamCard(t)).join('')}
+  ${shownTeams.length===0?`<div class="empty"><div class="icon">👥</div><h2>No teams yet</h2>${isAdmin?'<button class="btn btn-primary" onclick="showAddTeam()">Add First Team</button>':''}</div>`
+  :shownTeams.map(t=>teamCard(t)).join('')}
   <div id="mc"></div>`;
 }
 
@@ -2417,9 +2507,10 @@ function teamCard(t){
       </div>
       <div class="fc g8">
         <span class="hl" style="font-weight:700">${tot} pts</span>
-        ${isAdmin&&mySquad.length?`<button class="btn btn-secondary btn-sm" onclick="showPickXI('${t.id}')">${t.players.length===11?'✏️ Edit XI':'🎯 Pick XI'}</button>`:''}
+        ${canEditTeam(t.id)&&mySquad.length?`<button class="btn btn-secondary btn-sm" onclick="showPickXI('${t.id}')">${t.players.length===11?'✏️ Edit XI':'🎯 Pick XI'}</button>`:''}
         ${isAdmin?`<button class="btn btn-ghost btn-sm" onclick="showEditIplTeam('${t.id}')">✏️ IPL</button>`:''}
-        <button class="btn btn-danger btn-sm" onclick="delTeam('${t.id}')">Delete</button>
+        ${isAdmin?`<button class="btn btn-ghost btn-sm" onclick="showEditTeamPw('${t.id}')">🔑 Pw</button>`:''}
+        ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="delTeam('${t.id}')">Delete</button>`:''}
       </div>
     </div>
     <div class="fc g8 mb8" style="flex-wrap:wrap">
@@ -2440,7 +2531,7 @@ function teamCard(t){
         <td class="muted">${p.iplTeam||'—'}</td>
         <td><span class="badge ${p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':'b-green'}">${p.role||'—'}</span></td>
         <td style="text-align:right">
-          ${isAdmin?`<button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','captain')">C</button>
+          ${canEditTeam(t.id)?`<button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','captain')">C</button>
           <button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','vc')">VC</button>
           <button class="btn btn-danger btn-xs" onclick="removeFromXI('${t.id}','${p.name}')">✕</button>`:''}
         </td>
@@ -2468,6 +2559,33 @@ async function saveIplTeam(tid){
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   t.iplTeam=document.getElementById('eit-team')?.value||'';
   await saveS();closeModal('edit-iplteam-modal');render();
+}
+
+function showEditTeamPw(tid){
+  const t=S.teams.find(x=>x.id===tid);if(!t)return;
+  addModal('edit-pw-modal',`<div class="mhead"><h2>🔑 Set Password — ${t.name}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('edit-pw-modal')">✕</button></div>
+  <div class="alert al-info mb12 small">Team owner will use this password with "Team Login" to manage their own swaps, predictions, and XI.</div>
+  <div class="fg"><label>Password</label><input id="etp-pw" value="${t.password||''}" placeholder="e.g. thunder2025" /></div>
+  <button class="btn btn-primary" onclick="saveTeamPw('${tid}')">Save Password</button>
+  ${t.password?'<button class="btn btn-danger btn-sm mt8" onclick="clearTeamPw(\''+tid+'\')">Clear Password</button>':''}`);
+}
+
+async function saveTeamPw(tid){
+  if(!checkAdmin('set team password')) return;
+  const t=S.teams.find(x=>x.id===tid);if(!t)return;
+  const pw=document.getElementById('etp-pw')?.value.trim();
+  if(!pw){alert('Password required. Use Clear Password to remove.');return;}
+  t.password=pw;
+  await saveS();closeModal('edit-pw-modal');render();
+  alert('✅ Password set for '+t.name);
+}
+
+async function clearTeamPw(tid){
+  if(!checkAdmin('clear team password')) return;
+  if(!confirm('Clear password? Team owner will no longer be able to log in.')) return;
+  const t=S.teams.find(x=>x.id===tid);if(!t)return;
+  delete t.password;
+  await saveS();closeModal('edit-pw-modal');render();
 }
 
 function showPickXI(tid){
@@ -2605,7 +2723,10 @@ function pxiUpdate(){
 }
 
 function pxiSave(){
-  if(!checkAdmin('save XI')) return;
+  // Admin or the team's owner can save XI
+  if(!canEditTeam(_pxiTid)){
+    if(!checkAdmin('save XI')) return;
+  }
   var t=S.teams.find(function(x){return x.id===_pxiTid;});
   if(!t) return;
   var modal=document.getElementById('pick-xi-modal');
@@ -2637,7 +2758,9 @@ function pxiSave(){
 }
 
 async function removeFromXI(tid,name){
-  if(!checkAdmin('remove from XI')) return;
+  if(!canEditTeam(tid)){
+    if(!checkAdmin('remove from XI')) return;
+  }
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   t.players=t.players.filter(p=>p.name!==name);
   if(t.currentCaptain===name)t.currentCaptain=t.players[0]?.name||null;
@@ -2650,13 +2773,14 @@ function showAddTeam(){
   addModal('add-team-modal',`<div class="mhead"><h2>Add Team</h2><button class="btn btn-ghost btn-sm" onclick="closeModal('add-team-modal')">✕</button></div>
   <div class="fg"><label>Fantasy Team Name</label><input id="nt-name" placeholder="Thunderbolts" /></div>
   <div class="fg"><label>Owner Name</label><input id="nt-owner" placeholder="Ronak" /></div>
+  <div class="fg"><label>Login Password <span class="muted small">(for team owner access)</span></label><input id="nt-pw" placeholder="e.g. thunder2025" /></div>
   <div class="fg"><label>IPL Team (for auto win bonus +75)</label>
     <select id="nt-iplteam">
       <option value="">— Select IPL Team —</option>
       ${iplTeams.map(x=>`<option>${x}</option>`).join('')}
     </select>
   </div>
-  <div class="alert al-info mt8 small">When this IPL team wins a match, +75 is automatically added to this fantasy team.</div>
+  <div class="alert al-info mt8 small">Team owner uses this password with "Team Login" to manage their swaps, predictions &amp; XI. When this IPL team wins a match, +75 is auto-added.</div>
   <button class="btn btn-primary mt12" onclick="addTeam()">Create Team</button>`);
 }
 
@@ -2674,14 +2798,17 @@ async function addTeam(){
   if(!checkAdmin('add a team')) return;
   const name=document.getElementById('nt-name')?.value.trim();
   const owner=document.getElementById('nt-owner')?.value.trim();
+  const password=document.getElementById('nt-pw')?.value.trim();
   const iplTeam=document.getElementById('nt-iplteam')?.value||'';
   if(!name){alert('Team name required');return;}
-  S.teams.push({id:gid(),name,owner,iplTeam,players:[],currentCaptain:null,currentVc:null,swaps:{player:0,captain:0,vc:0,history:[]},predictions:{}});
+  S.teams.push({id:gid(),name,owner,password,iplTeam,players:[],currentCaptain:null,currentVc:null,swaps:{player:0,captain:0,vc:0,history:[]},predictions:{}});
   await saveS();closeModal('add-team-modal');render();
 }
 
 async function setRole(tid,name,type){
-  if(!checkAdmin('change captain/VC')) return;
+  if(!canEditTeam(tid)){
+    if(!checkAdmin('change captain/VC')) return;
+  }
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   if(type==='captain')t.currentCaptain=name;else t.currentVc=name;
   await saveS();render();
@@ -2692,6 +2819,7 @@ async function delTeam(tid){
   if(!confirm('Delete team? Cannot be undone.'))return;
   S.teams=S.teams.filter(t=>t.id!==tid);
   S.matches.forEach(m=>{if(m.teamScores)delete m.teamScores[tid];});
+  if(loggedInTeamId===tid){loggedInTeamId=null;setTeamLoginUI();}
   await saveS();render();
 }
 
@@ -2706,21 +2834,28 @@ function getMatchDates() {
 }
 
 function vSwaps(){
-  return`<div class="fb mb16"><h1>Swap Tracker</h1></div>
+  const currentTeam=getCurrentTeam();
+  // Non-admin team owners see only their own team. Admin sees all.
+  const shownTeams = isAdmin ? S.teams : (currentTeam ? [currentTeam] : S.teams);
+  return`<div class="fb mb16"><h1>Swap Tracker</h1>${currentTeam?`<span class="badge b-blue">👤 ${currentTeam.name}</span>`:''}</div>
   <div class="alert al-info mb12">
     <strong>Swap Rules:</strong> Season limits: <strong>25 player swaps · 7 captain · 7 VC</strong>.
     Wrong swap = <strong class="neg">−200 pts</strong> and still counts against your season total.
+    ${!isAdmin&&!currentTeam?'<br/><strong>Log in as your team</strong> to log swaps.':''}
+    ${!isAdmin&&currentTeam?'<br/><span class="muted small">Only admin can undo a logged swap.</span>':''}
   </div>
-  ${S.teams.map(t=>swapCard(t)).join('')}
+  ${shownTeams.map(t=>swapCard(t)).join('')}
   <div id="mc"></div>`;
 }
 
 function swapCard(t){
   const sw=t.swaps||{player:0,captain:0,vc:0,history:[]};
+  const canLog = canEditTeam(t.id);
+  const isOwn = loggedInTeamId===t.id;
   return`<div class="card mb12">
     <div class="fb mb12">
-      <span style="font-weight:700">${t.name}</span>
-      ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="showSwapModal('${t.id}')">+ Log Swap</button>`:''}
+      <span style="font-weight:700">${t.name}${isOwn?' <span class="badge b-blue" style="font-size:9px">YOU</span>':''}</span>
+      ${canLog?`<button class="btn btn-primary btn-sm" onclick="showSwapModal('${t.id}')">+ Log Swap</button>`:''}
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">
       ${[{l:'Player Swaps',u:sw.player||0,max:25},{l:'Captain Swaps',u:sw.captain||0,max:7},{l:'VC Swaps',u:sw.vc||0,max:7}].map(x=>`
@@ -2738,7 +2873,7 @@ function swapCard(t){
         <td>${s.to||'—'}</td>
         <td class="muted small">${s.match||'—'}</td>
         <td>${s.isWrong?'<span class="badge b-red">WRONG −200</span>':'<span class="badge b-green">Valid</span>'}</td>
-        ${isAdmin?`<td><button class="btn btn-danger btn-xs" onclick="reverseSwap('${t.id}',${sw.history.length-1-idx})">↩</button></td>`:''}
+        ${isAdmin?`<td><button class="btn btn-danger btn-xs" onclick="reverseSwap('${t.id}',${sw.history.length-1-idx})" title="Undo (admin only)">↩</button></td>`:''}
       </tr>`).reverse().join('')}</tbody>
     </table></div>`:'<p class="muted small">No swaps logged</p>'}
   </div>`;
@@ -2804,7 +2939,10 @@ function updateSwapForm(tid){
 }
 
 async function logSwap(tid){
-  if(!checkAdmin('log a swap')) return;
+  // Admin or the team's owner can log swaps
+  if(!canEditTeam(tid)){
+    if(!checkAdmin('log a swap')) return;
+  }
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   const type=document.getElementById('sw-type')?.value;
   const from=document.getElementById('sw-from')?.value;
@@ -2870,25 +3008,25 @@ async function logSwap(tid){
 }
 
 function vPredictions(){
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todayMatches = S.matches.filter(m => !m.completed && m.date === todayStr);
-  const futureMatches = S.matches.filter(m => !m.completed && m.date && m.date > todayStr);
+  const now = new Date();
+  // Open matches = not completed and (no date OR before start time)
+  const openMatches = S.matches.filter(m => !m.completed && !isPredictionLocked(m));
+  const lockedNotCompleted = S.matches.filter(m => !m.completed && isPredictionLocked(m));
   const pastMatches = [...S.matches].filter(m => m.completed).reverse();
+  const currentTeam = getCurrentTeam();
 
-  return`<div class="fb mb16"><h1>🎯 Predictions</h1></div>
-  <div class="alert al-info mb16">Predictions open on match day (before result). Correct = <span class="pos">+30</span> | Wrong = <span class="neg">−20</span>.</div>
+  return`<div class="fb mb16"><h1>🎯 Predictions</h1>${currentTeam?`<span class="badge b-blue">👤 ${currentTeam.name}</span>`:''}</div>
+  <div class="alert al-info mb16">Predictions open until match start time. Correct = <span class="pos">+30</span> | Wrong = <span class="neg">−20</span>. ${!isAdmin&&!currentTeam?'<br/><strong>Log in as your team</strong> to submit predictions.':''}</div>
 
-  ${todayMatches.length ? `
-    <h2 style="margin-bottom:12px">📅 Today — ${todayStr}${todayMatches.length>1?` (${todayMatches.length} games)`:''}</h2>
-    ${todayMatches.map(m=>predCardInput(m, true)).join('')}
-  ` : `<div class="alert al-warn mb16">No matches scheduled for today. ${futureMatches.length?`Next: <strong>${futureMatches[0].name}</strong> on ${futureMatches[0].date}`:'No upcoming matches yet.'}</div>`}
+  ${openMatches.length ? `
+    <h2 style="margin-bottom:12px">🟢 Open for Predictions</h2>
+    ${openMatches.map(m=>predCardInput(m, true)).join('')}
+  ` : '<div class="alert al-warn mb16">No matches currently open for predictions.</div>'}
 
-  ${futureMatches.length ? `
+  ${lockedNotCompleted.length ? `
     <div class="sep"></div>
-    <p class="muted small mt12 mb12">🔒 ${futureMatches.length} upcoming match${futureMatches.length>1?'es':''} — predictions will open on match day:</p>
-    ${futureMatches.map(m=>`<div class="card mb8" style="padding:10px 14px">
-      <div class="fb"><span style="font-weight:600">${m.name}</span><span class="muted small">${m.date}</span></div>
-    </div>`).join('')}
+    <h2 style="margin:16px 0 12px">⏰ Locked — Awaiting Result</h2>
+    ${lockedNotCompleted.map(m=>predCardInput(m, false)).join('')}
   ` : ''}
 
   ${pastMatches.length ? `
@@ -2899,7 +3037,8 @@ function vPredictions(){
 }
 
 function predCardInput(m, canInput){
-  const isToday = canInput;
+  const startLabel = matchStartLabel(m);
+  const currentTeamId = loggedInTeamId;
   return`<div class="card mb12">
     <div class="fb mb12">
       <div class="fc g8">
@@ -2907,8 +3046,8 @@ function predCardInput(m, canInput){
         ${m.type==='final'?'<span class="badge b-gold">Final</span>':m.type==='semifinal'?'<span class="badge b-purple">SF</span>':'<span class="badge b-blue">League</span>'}
       </div>
       <div class="fc g8">
-        <span class="muted small">${m.date||''}</span>
-        ${m.winner?`<span class="badge b-green">✓ ${m.winner}</span>`:'<span class="badge b-orange">TBD</span>'}
+        <span class="muted small">${startLabel||m.date||''}</span>
+        ${m.winner?`<span class="badge b-green">✓ ${m.winner}</span>`:canInput?'<span class="badge b-green">🟢 Open</span>':'<span class="badge b-orange">TBD</span>'}
       </div>
     </div>
     <div class="tscroll"><table>
@@ -2916,12 +3055,13 @@ function predCardInput(m, canInput){
       <tbody>${S.teams.map(t=>{
         const p=t.predictions?.[m.id];
         const correct=p&&m.winner?p.prediction?.toLowerCase()===m.winner?.toLowerCase():null;
-        const canEdit = isToday && !m.winner;
-        return`<tr>
-          <td style="font-weight:600">${t.name}</td>
+        const isOwnTeam = currentTeamId===t.id;
+        const canEditThis = !m.winner && canInput && (isAdmin || isOwnTeam);
+        return`<tr${isOwnTeam?' style="background:var(--orange-dim,rgba(245,166,35,0.08))"':''}>
+          <td style="font-weight:600">${t.name}${isOwnTeam?' <span class="badge b-blue" style="font-size:9px">YOU</span>':''}</td>
           <td>${p
-            ? `<span class="badge b-blue">${p.prediction}</span>${canEdit&&isAdmin?` <button class="btn btn-ghost btn-xs" onclick="clearPred('${t.id}','${m.id}')">✕</button>`:''}`
-            : (canEdit && isAdmin
+            ? `<span class="badge b-blue">${p.prediction}</span>${canEditThis?` <button class="btn btn-ghost btn-xs" onclick="clearPred('${t.id}','${m.id}')" title="Clear">✕</button>`:''}`
+            : (canEditThis
                 ? `<div class="fc g6"><select id="pi-${t.id}-${m.id}" style="width:90px"><option value="">Pick…</option>${['MI','CSK','RCB','KKR','PBKS','RR','SRH','DC','GT','LSG'].map(x=>`<option>${x}</option>`).join('')}</select><button class="btn btn-secondary btn-xs" onclick="savePred('${t.id}','${m.id}')">Save</button></div>`
                 : `<span class="muted small">—</span>`)
           }</td>
@@ -2937,24 +3077,33 @@ function predCardInput(m, canInput){
 }
 
 async function clearPred(tid, mid){
-  if(!checkAdmin('clear a prediction')) return;
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
+  const m=S.matches.find(x=>x.id===mid);
+  // Admin can always clear. Team owner can clear only before match start time.
+  if(!canEditTeam(tid)){
+    if(!checkAdmin('clear a prediction')) return;
+  } else if(!isAdmin){
+    if(isPredictionLocked(m)){alert('⏰ Match has started — predictions are locked. Only admin can clear now.');return;}
+  }
   if(t.predictions) delete t.predictions[mid];
   await saveS(); render();
 }
 
 async function savePred(tid,mid){
-  if(!checkAdmin('save a prediction')) return;
+  const t=S.teams.find(x=>x.id===tid);if(!t)return;
+  const m=S.matches.find(x=>x.id===mid);
+  // Admin can always save. Team owner can save only before match start time.
+  if(!canEditTeam(tid)){
+    if(!checkAdmin('save a prediction')) return;
+  } else if(!isAdmin){
+    if(isPredictionLocked(m)){alert('⏰ Match has started — predictions are locked.');return;}
+  }
   const el=document.getElementById(`pi-${tid}-${mid}`);
   const pred=el?.value?.trim();
   if(!pred||pred===''){alert('Select a team to predict');return;}
-  const m=S.matches.find(x=>x.id===mid);
-  const todayStr=new Date().toISOString().split('T')[0];
-  if(m?.date && m.date !== todayStr){alert('Predictions can only be saved for today\'s matches.');return;}
   if(m?.completed){alert('Match already completed — prediction cannot be saved.');return;}
-  const t=S.teams.find(x=>x.id===tid);if(!t)return;
   if(!t.predictions)t.predictions={};
-  t.predictions[mid]={prediction:pred,savedAt:new Date().toISOString()};
+  t.predictions[mid]={prediction:pred,savedAt:new Date().toISOString(),savedBy:isAdmin?'admin':'owner'};
   await saveS();render();
 }
 
@@ -3668,6 +3817,7 @@ document.getElementById('nav').addEventListener('click',e=>{
   await loadS();
   const ind=document.getElementById('sync-indicator');
   if(ind){ ind.textContent='●'; ind.className='badge b-green'; ind.title='Connected to Firebase'; }
+  setTeamLoginUI();
   render();
 })();
 </script>
