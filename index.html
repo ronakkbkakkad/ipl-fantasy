@@ -573,7 +573,7 @@ function calcPlayerTotal(pdata, isC=false, isVC=false, isSuperSub=false){
    Strategy: start with current state, reverse-apply any swaps assigned to matches
    AFTER this match. A swap assigned to matchId M means "effective FROM match M onwards". */
 function getRosterAtMatch(team, targetMatchId){
-  const matchOrder=S.matches.map(m=>m.id);
+  const matchOrder=getMatchesSorted().map(m=>m.id);
   const targetIdx=matchOrder.indexOf(targetMatchId);
   if(targetIdx<0) return{players:[...(team.players||[])], captain:team.currentCaptain, vc:team.currentVc};
 
@@ -773,7 +773,7 @@ function lastMatchWidget(){
 }
 
 function vMatches(){
-  const completed=S.matches.filter(m=>m.completed);
+  const completed=getMatchesSorted().filter(m=>m.completed);
   if(!completed.length) return`<div class="empty"><div class="icon">📊</div><h2>No completed matches yet</h2><p>${isAdmin?'Create a match and upload the scorecard after it ends':'Scores will appear here once matches are completed'}</p>${isAdmin?'<button class="btn btn-primary" onclick="nav(\'add\')">Match Manager →</button>':''}</div>`;
   return`<div class="fb mb16"><h1>Match History</h1>${isAdmin?'<button class="btn btn-primary btn-sm" onclick="nav(\'add\')">Match Manager</button>':''}</div>
   ${[...completed].reverse().map(m=>matchCard(m)).join('')}`;
@@ -845,7 +845,7 @@ async function recalcMatch(id){
 let pointsView = { teamId: null, matchId: null };
 
 function vPoints(){
-  const completedMatches = S.matches.filter(m=>m.completed);
+  const completedMatches = getMatchesSorted().filter(m=>m.completed);
   if(!completedMatches.length) return`<div class="empty"><div class="icon">📈</div><h2>No completed matches yet</h2><p>Points will appear here once a match scorecard is uploaded</p></div>`;
   if(!S.teams.length) return`<div class="empty"><div class="icon">👥</div><h2>No teams yet</h2></div>`;
 
@@ -933,8 +933,9 @@ function vAdd(){
 }
 
 function vAddMenu(){
-  const upcoming=S.matches.filter(m=>!m.completed);
-  const completed=S.matches.filter(m=>m.completed);
+  const sorted=getMatchesSorted();
+  const upcoming=sorted.filter(m=>!m.completed);
+  const completed=sorted.filter(m=>m.completed);
   return`<div class="fb mb16"><h1>Match Manager</h1></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
     <div class="card" style="cursor:pointer" onclick="addView='create';render()">
@@ -2432,6 +2433,26 @@ function hasMatchStarted() {
   return S.matches.filter(m=>m.completed).length >= 2;
 }
 
+// Extract the "Match N" number from a match name, or fall back to creation order
+function getMatchNumber(m){
+  if(!m||!m.name) return 0;
+  const match=m.name.match(/Match\s*(\d+)/i);
+  return match?parseInt(match[1]):0;
+}
+
+// Return matches sorted by match number (ascending)
+function getMatchesSorted(){
+  return [...S.matches].sort((a,b)=>{
+    const na=getMatchNumber(a), nb=getMatchNumber(b);
+    if(na&&nb) return na-nb;
+    if(na) return -1;
+    if(nb) return 1;
+    // Fallback to date then creation order
+    if(a.date&&b.date) return a.date.localeCompare(b.date);
+    return 0;
+  });
+}
+
 // Returns true if predictions for a match are locked (past start time or completed)
 function isPredictionLocked(m){
   if(!m) return true;
@@ -2503,11 +2524,11 @@ function teamCard(t){
       <div>
         <span style="font-weight:700;font-size:15px">${t.name}</span>
         ${t.owner?`<span class="muted small" style="margin-left:8px">${t.owner}</span>`:''}
-        ${t.iplTeam?`<span class="badge b-blue" style="margin-left:8px">🏏 ${t.iplTeam}</span>`:`<span class="badge b-red" style="margin-left:8px;cursor:pointer" onclick="showEditIplTeam('${t.id}')">⚠️ No IPL team</span>`}
+        ${t.iplTeam?`<span class="badge b-blue" style="margin-left:8px">🏏 ${t.iplTeam}</span>`:(isAdmin?`<span class="badge b-red" style="margin-left:8px;cursor:pointer" onclick="showEditIplTeam('${t.id}')">⚠️ No IPL team</span>`:`<span class="badge b-red" style="margin-left:8px">⚠️ No IPL team</span>`)}
       </div>
       <div class="fc g8">
         <span class="hl" style="font-weight:700">${tot} pts</span>
-        ${canEditTeam(t.id)&&mySquad.length?`<button class="btn btn-secondary btn-sm" onclick="showPickXI('${t.id}')">${t.players.length===11?'✏️ Edit XI':'🎯 Pick XI'}</button>`:''}
+        ${isAdmin&&mySquad.length?`<button class="btn btn-secondary btn-sm" onclick="showPickXI('${t.id}')">${t.players.length===11?'✏️ Edit XI':'🎯 Pick XI'}</button>`:''}
         ${isAdmin?`<button class="btn btn-ghost btn-sm" onclick="showEditIplTeam('${t.id}')">✏️ IPL</button>`:''}
         ${isAdmin?`<button class="btn btn-ghost btn-sm" onclick="showEditTeamPw('${t.id}')">🔑 Pw</button>`:''}
         ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="delTeam('${t.id}')">Delete</button>`:''}
@@ -2531,7 +2552,7 @@ function teamCard(t){
         <td class="muted">${p.iplTeam||'—'}</td>
         <td><span class="badge ${p.role==='Batsman'?'b-blue':p.role==='Bowler'?'b-purple':p.role==='All-rounder'?'b-orange':'b-green'}">${p.role||'—'}</span></td>
         <td style="text-align:right">
-          ${canEditTeam(t.id)?`<button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','captain')">C</button>
+          ${isAdmin?`<button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','captain')">C</button>
           <button class="btn btn-ghost btn-xs" onclick="setRole('${t.id}','${p.name}','vc')">VC</button>
           <button class="btn btn-danger btn-xs" onclick="removeFromXI('${t.id}','${p.name}')">✕</button>`:''}
         </td>
@@ -2723,10 +2744,7 @@ function pxiUpdate(){
 }
 
 function pxiSave(){
-  // Admin or the team's owner can save XI
-  if(!canEditTeam(_pxiTid)){
-    if(!checkAdmin('save XI')) return;
-  }
+  if(!checkAdmin('save XI')) return;
   var t=S.teams.find(function(x){return x.id===_pxiTid;});
   if(!t) return;
   var modal=document.getElementById('pick-xi-modal');
@@ -2758,9 +2776,7 @@ function pxiSave(){
 }
 
 async function removeFromXI(tid,name){
-  if(!canEditTeam(tid)){
-    if(!checkAdmin('remove from XI')) return;
-  }
+  if(!checkAdmin('remove from XI')) return;
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   t.players=t.players.filter(p=>p.name!==name);
   if(t.currentCaptain===name)t.currentCaptain=t.players[0]?.name||null;
@@ -2806,9 +2822,7 @@ async function addTeam(){
 }
 
 async function setRole(tid,name,type){
-  if(!canEditTeam(tid)){
-    if(!checkAdmin('change captain/VC')) return;
-  }
+  if(!checkAdmin('change captain/VC')) return;
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   if(type==='captain')t.currentCaptain=name;else t.currentVc=name;
   await saveS();render();
@@ -2926,7 +2940,7 @@ function showSwapModal(tid){
     </div>
   </div>
   <div class="fg"><label>For Match</label>
-    <select id="sw-match"><option value="">Next match</option>${S.matches.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}</select>
+    <select id="sw-match"><option value="">Next match</option>${getMatchesSorted().map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}</select>
   </div>
   <div class="fg"><label class="fc g6" style="cursor:pointer"><input type="checkbox" id="sw-wrong" style="width:auto" /> Mark as WRONG swap (−200 pts penalty)</label></div>
   <button class="btn btn-primary" onclick="logSwap('${tid}')">Log Swap</button>`);
@@ -3009,10 +3023,11 @@ async function logSwap(tid){
 
 function vPredictions(){
   const now = new Date();
+  const sortedMatches = getMatchesSorted();
   // Open matches = not completed and (no date OR before start time)
-  const openMatches = S.matches.filter(m => !m.completed && !isPredictionLocked(m));
-  const lockedNotCompleted = S.matches.filter(m => !m.completed && isPredictionLocked(m));
-  const pastMatches = [...S.matches].filter(m => m.completed).reverse();
+  const openMatches = sortedMatches.filter(m => !m.completed && !isPredictionLocked(m));
+  const lockedNotCompleted = sortedMatches.filter(m => !m.completed && isPredictionLocked(m));
+  const pastMatches = sortedMatches.filter(m => m.completed).reverse();
   const currentTeam = getCurrentTeam();
 
   return`<div class="fb mb16"><h1>🎯 Predictions</h1>${currentTeam?`<span class="badge b-blue">👤 ${currentTeam.name}</span>`:''}</div>
@@ -3142,7 +3157,7 @@ function toggleTeamLine(idx){
 }
 
 function getAggregatedStats(){
-  const completed=S.matches.filter(m=>m.completed&&m.rawScorecard);
+  const completed=getMatchesSorted().filter(m=>m.completed&&m.rawScorecard);
   const playerMap={};
 
   for(const m of completed){
@@ -3215,7 +3230,7 @@ function getAggregatedStats(){
 }
 
 function getTeamProgressData(){
-  const completed=S.matches.filter(m=>m.completed);
+  const completed=getMatchesSorted().filter(m=>m.completed);
   const teams=S.teams.map(t=>{
     let cumulative=0;
     const series=completed.map(m=>{
@@ -3230,7 +3245,7 @@ function getTeamProgressData(){
 }
 
 function vAnalytics(){
-  const completed=S.matches.filter(m=>m.completed);
+  const completed=getMatchesSorted().filter(m=>m.completed);
   if(!completed.length)return'<div class="empty"><div class="icon">📊</div><h2>No Match Data Yet</h2><p class="muted">Analytics will appear once matches are scored.</p></div>';
 
   const tabs=[
