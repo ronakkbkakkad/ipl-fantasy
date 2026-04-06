@@ -2270,11 +2270,41 @@ async function saveEditSquadPlayer(id){
   const isOverseas=document.getElementById('esp-overseas')?.checked||false;
   if(!name){alert('Name required');return;}
   if(!role){alert('Please select a role');return;}
+  // Capture OLD values before overwriting — needed to propagate rename/owner change
+  const oldName=p.name;
+  const oldOwner=p.ownerTeam;
   p.name=name; p.iplTeam=iplTeam; p.role=role; p.ownerTeam=ownerTeam; p.isOverseas=isOverseas;
-  // Also update the player in any XI that references this player
+  // Propagate rename/metadata into every team's XI that holds this player (matched by OLD name)
   for(const t of S.teams){
-    const xi=t.players.find(x=>x.id===id||x.name===name);
-    if(xi){xi.name=name;xi.iplTeam=iplTeam;xi.role=role;}
+    if(Array.isArray(t.players)){
+      t.players.forEach(x=>{
+        if(x.name===oldName){
+          x.name=name;
+          x.iplTeam=iplTeam;
+          x.role=role;
+        }
+      });
+    }
+    // Update captain / vice-captain references that pointed to the old name
+    if(t.currentCaptain===oldName) t.currentCaptain=name;
+    if(t.currentVc===oldName) t.currentVc=name;
+    // Update swap history entries so the audit trail stays consistent
+    if(t.swaps && Array.isArray(t.swaps.history)){
+      t.swaps.history.forEach(h=>{
+        if(h.from===oldName) h.from=name;
+        if(h.to===oldName) h.to=name;
+      });
+    }
+  }
+  // If the owner team changed, the player must be removed from the previous owner's XI
+  // (otherwise a stale name remains in that team's lineup).
+  if(oldOwner && oldOwner!==ownerTeam){
+    const prevTeam=S.teams.find(t=>t.name===oldOwner);
+    if(prevTeam && Array.isArray(prevTeam.players)){
+      prevTeam.players=prevTeam.players.filter(x=>x.name!==name);
+      if(prevTeam.currentCaptain===name) prevTeam.currentCaptain=null;
+      if(prevTeam.currentVc===name) prevTeam.currentVc=null;
+    }
   }
   await saveS();
   closeModal('edit-squad-modal');
@@ -2672,6 +2702,14 @@ function showPickXI(tid){
   var mySquad=(S.squad||[]).filter(function(p){return p.ownerTeam===t.name;});
   if(!mySquad.length){alert('No squad players found. Import squad first.');return;}
 
+  // Sanitize stale captain / VC references: if they point to a name that is no longer
+  // in this team's squad (e.g. renamed, removed, or reassigned to another team),
+  // clear them so no "ghost" pre-check lingers and no stale value is saved back.
+  var squadNames={};
+  mySquad.forEach(function(p){squadNames[p.name]=true;});
+  if(t.currentCaptain && !squadNames[t.currentCaptain]) t.currentCaptain=null;
+  if(t.currentVc && !squadNames[t.currentVc]) t.currentVc=null;
+
   var roles=['Batsman','Bowler','All-rounder','Wicket-keeper'];
   var grouped={};roles.forEach(function(r){grouped[r]=[];});
   grouped['Unassigned']=[];
@@ -2836,8 +2874,11 @@ async function removeFromXI(tid,name){
   if(!checkAdmin('remove from XI')) return;
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   t.players=t.players.filter(p=>p.name!==name);
-  if(t.currentCaptain===name)t.currentCaptain=t.players[0]?.name||null;
-  if(t.currentVc===name)t.currentVc=t.players[1]?.name||t.players[0]?.name||null;
+  // Clear captain / VC if the removed player held that role.
+  // Do NOT auto-assign a replacement — picking t.players[0] is effectively random
+  // and has caused wrong captains to silently appear. Admin must re-pick.
+  if(t.currentCaptain===name) t.currentCaptain=null;
+  if(t.currentVc===name) t.currentVc=null;
   await saveS();render();
 }
 
