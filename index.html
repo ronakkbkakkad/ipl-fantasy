@@ -1010,6 +1010,7 @@ function vAddMenu(){
           <td class="fc g6">
             ${isLeague&&isAdmin?`<button class="btn btn-secondary btn-sm" onclick="showSuperSubModal('${m.id}')">⚡ Super Subs</button>`:''}
             <button class="btn btn-primary btn-sm" onclick="addView='scorecard';scorecardMatchId='${m.id}';render()">📤 Upload Scorecard</button>
+            ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="markMatchAsDraw('${m.id}')" title="No scorecard needed">🤝 Mark as Draw</button>`:''}
             <button class="btn btn-danger btn-xs" onclick="delMatch('${m.id}')">Delete</button>
           </td>
         </tr>`;}).join('')}
@@ -1077,8 +1078,10 @@ async function createUpcomingMatch(){
   const date=document.getElementById('md')?.value;
   const startTime=document.getElementById('mst')?.value||'19:30';
   const type=document.getElementById('mt')?.value;
+  const team1=document.getElementById('mn-t1')?.value||'';
+  const team2=document.getElementById('mn-t2')?.value||'';
   if(!name){alert('Match name required');return;}
-  S.matches.push({id:gid(),name,date,startTime,type,completed:false,teamScores:{},winner:'',mom:''});
+  S.matches.push({id:gid(),name,date,startTime,type,team1,team2,completed:false,teamScores:{},winner:'',mom:''});
   await saveS();
   addView='menu';
   render();
@@ -2014,6 +2017,70 @@ async function submitMatch(){
   await saveS();
   nav('matches');
   alert(`✅ Scores saved for "${matchRec.name}"! C: used each team's current captain.`);
+}
+
+// Mark a match as a Draw without requiring any scorecard data.
+// Only the fantasy team OWNERS of the 2 IPL teams that played the match get +40 each.
+// Predictors get NOTHING for a Draw (their prediction is treated as neither right nor wrong).
+// No player stats, no MOM, no IPL-team win bonus.
+async function markMatchAsDraw(matchId){
+  if(!checkAdmin('mark match as draw')) return;
+  const matchRec=S.matches.find(m=>m.id===matchId);
+  if(!matchRec){alert('Match not found');return;}
+  if(matchRec.completed && !confirm('This match is already completed. Overwrite as Draw?')) return;
+
+  // Resolve the 2 IPL teams that played. Prefer stored team1/team2 (new matches);
+  // fall back to parsing the match name (older matches created before this field existed).
+  const IPL=['MI','CSK','RCB','KKR','PBKS','RR','SRH','DC','GT','LSG'];
+  let t1=matchRec.team1||'';
+  let t2=matchRec.team2||'';
+  if(!t1 || !t2){
+    const upper=(matchRec.name||'').toUpperCase();
+    const found=IPL.filter(x=>new RegExp('\\b'+x+'\\b').test(upper));
+    if(found.length>=2){ t1=found[0]; t2=found[1]; }
+  }
+  // If still missing, prompt admin to enter them manually.
+  if(!t1 || !t2){
+    const ask=prompt('Could not detect the 2 IPL teams for this match.\nEnter them comma-separated (e.g. "MI,CSK"):','');
+    if(!ask) return;
+    const parts=ask.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
+    if(parts.length<2 || !IPL.includes(parts[0]) || !IPL.includes(parts[1])){
+      alert('Invalid teams. Use exactly 2 IPL short names like "MI,CSK".');
+      return;
+    }
+    t1=parts[0]; t2=parts[1];
+    matchRec.team1=t1; matchRec.team2=t2;
+  }
+
+  if(!confirm(`Mark "${matchRec.name}" as a DRAW between ${t1} and ${t2}?\n\nFantasy team owners of ${t1} and ${t2} will each receive +40.\nPredictions are ignored — no points awarded or deducted for predictions.\nNo scorecard data required.`)) return;
+
+  matchRec.winner='Draw';
+  matchRec.mom='';
+  matchRec.completed=true;
+  matchRec.rawScorecard=null;
+  matchRec.teamScores={};
+
+  for(const t of S.teams){
+    let total=0;
+    const players=[];
+    // Clear any prediction "correct" flag — Draw is neutral, neither right nor wrong.
+    if(t.predictions?.[matchRec.id]){
+      delete t.predictions[matchRec.id].correct;
+    }
+    // +40 only if this fantasy team owns one of the two IPL teams that played
+    const ownsT1 = t.iplTeam && t.iplTeam.toUpperCase()===t1;
+    const ownsT2 = t.iplTeam && t.iplTeam.toUpperCase()===t2;
+    if(ownsT1 || ownsT2){
+      total+=40;
+      const which = ownsT1 ? t1 : t2;
+      players.push({name:`${which} drew +40`,isC:false,isVC:false,isSuperSub:false,pts:40,bd:[{l:`${which} draw bonus +40`,p:40,c:'bonus'}]});
+    }
+    matchRec.teamScores[t.id]={total,captain:t.currentCaptain||null,vc:t.currentVc||null,players};
+  }
+
+  await saveS();
+  render();
+  alert(`🤝 "${matchRec.name}" marked as Draw. ${t1} and ${t2} owners awarded +40 each.`);
 }
 
 // ═══════════════════════════════════════════
@@ -3154,7 +3221,7 @@ function vPredictions(){
   const currentTeam = getCurrentTeam();
 
   return`<div class="fb mb16"><h1>🎯 Predictions</h1>${currentTeam?`<span class="badge b-blue">👤 ${currentTeam.name}</span>`:''}</div>
-  <div class="alert al-info mb16">Predictions open until match start time. Correct = <span class="pos">+30</span> | Wrong = <span class="neg">−20</span>. ${!isAdmin&&!currentTeam?'<br/><strong>Log in as your team</strong> to submit predictions.':''}</div>
+  <div class="alert al-info mb16">Predictions open until match start time. Correct = <span class="pos">+30</span> | Wrong = <span class="neg">−20</span> | Draw = neutral (no points / no penalty for predictors). ${!isAdmin&&!currentTeam?'<br/><strong>Log in as your team</strong> to submit predictions.':''}</div>
 
   ${openMatches.length ? `
     <h2 style="margin-bottom:12px">🟢 Open for Predictions</h2>
@@ -3192,7 +3259,10 @@ function predCardInput(m, canInput){
       <thead><tr><th>Fantasy Team</th><th>Prediction</th><th>Result</th><th>Pts</th>${isAdmin?'<th></th>':''}</tr></thead>
       <tbody>${S.teams.map(t=>{
         const p=t.predictions?.[m.id];
-        const correct=p&&m.winner?p.prediction?.toLowerCase()===m.winner?.toLowerCase():null;
+        const isDrawMatch = m.winner?.toLowerCase()==='draw';
+        // On a Draw, predictions are neutral — no points, no penalty
+        const correct = isDrawMatch ? null : (p&&m.winner?p.prediction?.toLowerCase()===m.winner?.toLowerCase():null);
+        const predPts = isDrawMatch ? '—' : (correct===true ? '+30' : correct===false ? '−20' : '—');
         const isOwnTeam = currentTeamId===t.id;
         // Admin can edit any prediction until the match is completed (score uploaded / winner set).
         // Team owners can edit only before match start (canInput=true) and only their own team.
@@ -3207,7 +3277,7 @@ function predCardInput(m, canInput){
           }</td>
           <td>${m.winner?`<span class="badge ${correct?'b-green':'b-red'}">${m.winner}</span>`:'—'}</td>
           <td class="${correct===true?'pos':correct===false?'neg':''}" style="font-weight:600">
-            ${correct===true?'+30':correct===false?'−20':'—'}
+            ${predPts}
           </td>
           ${isAdmin?`<td>${p?`<button class="btn btn-danger btn-xs" onclick="reversePred('${t.id}','${m.id}')">↩</button>`:'—'}</td>`:''}
         </tr>`;
