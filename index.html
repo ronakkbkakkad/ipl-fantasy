@@ -691,12 +691,19 @@ function processTeamMatch(team, sc, matchId){
   }
   const mom=sc.match?.mom;
   if(mom){
-    const hasMom=rosterPlayers.some(p=>p.name.toLowerCase()===mom.toLowerCase().trim());
+    const momLc=mom.toLowerCase().trim();
+    const hasMom=rosterPlayers.some(p=>p.name.toLowerCase()===momLc);
     if(hasMom){
       const mt=sc._matchType||'league';
-      const mp=mt==='final'?100:mt==='semifinal'?75:50;
+      const baseMp=mt==='final'?100:mt==='semifinal'?75:50;
+      // If MOM is this team's captain → 2x, vice-captain → 1.5x
+      const isMomC = matchCaptain && matchCaptain.toLowerCase()===momLc;
+      const isMomVC = matchVc && matchVc.toLowerCase()===momLc;
+      const mult = isMomC ? 2 : isMomVC ? 1.5 : 1;
+      const mp = Math.round(baseMp*mult);
       total+=mp;
-      players.push({name:mom,isC:false,isVC:false,isSuperSub:false,pts:mp,bd:[{l:`MOM (${mt})`,p:mp,c:'bonus'}]});
+      const label = mult===1 ? `MOM (${mt})` : `MOM (${mt}) ×${mult} ${isMomC?'[C]':'[VC]'}`;
+      players.push({name:mom,isC:!!isMomC,isVC:!!isMomVC,isSuperSub:false,pts:mp,bd:[{l:label,p:mp,c:'bonus'}]});
     }
   }
   const pred=team.predictions?.[matchId];
