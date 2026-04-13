@@ -416,7 +416,10 @@ async function loadS() {
 
 async function saveS() {
   // Allow admin OR logged-in team owner to save
-  if (!isAdmin && !loggedInTeamId) return;
+  if (!isAdmin && !loggedInTeamId) {
+    alert('⚠️ Your session has expired — please log in again. Your change was NOT saved.');
+    throw new Error('Not authenticated');
+  }
   const ind = document.getElementById('sync-indicator');
   if(ind){ ind.textContent='↑'; ind.className='badge b-orange'; }
   try {
@@ -429,6 +432,37 @@ async function saveS() {
     throw e;
   }
 }
+
+// Auto-reload state from Firebase whenever the tab regains focus or becomes visible.
+// Without this, an admin's stale in-memory S can overwrite a team-owner's remote changes
+// on the next save, silently wiping the owner's swaps / predictions.
+let _lastReloadAt = Date.now();
+async function refreshStateFromRemote(){
+  // Don't refresh too aggressively
+  if(Date.now()-_lastReloadAt < 2000) return;
+  _lastReloadAt = Date.now();
+  // Preserve current login state across the reload
+  const prevAdmin = isAdmin;
+  const prevTid = loggedInTeamId;
+  try{
+    const ok = await loadS();
+    if(ok){
+      isAdmin = prevAdmin;
+      loggedInTeamId = prevTid;
+      // Re-validate team still exists
+      if(loggedInTeamId && !S?.teams?.find(t=>t.id===loggedInTeamId)){
+        loggedInTeamId = null;
+        clearSession();
+        if(isAdmin) saveSession();
+      }
+      render();
+    }
+  }catch(e){ console.warn('Auto-refresh failed:', e); }
+}
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='visible') refreshStateFromRemote();
+});
+window.addEventListener('focus', refreshStateFromRemote);
 
 function fuzzyMatch(name1, name2) {
   const n1 = name1.toLowerCase().trim();
@@ -1101,7 +1135,11 @@ function vAddScorecard(){
   const m=S.matches.find(x=>x.id===scorecardMatchId);
   if(!m) return`<div class="empty"><p>Match not found.</p></div>`;
   const IPL=['MI','CSK','RCB','KKR','PBKS','RR','SRH','DC','GT','LSG'];
+  // Only the 2 teams playing this match are valid winner options; fall back to full list.
+  const playing=getMatchTeams(m);
+  const winnerList=playing.length>=2?playing:IPL;
   const iplOpts=IPL.map(t=>`<option value="${t}">${t}</option>`).join('');
+  const winnerOpts=winnerList.map(t=>`<option value="${t}">${t}</option>`).join('');
 
   return`<div class="fb mb16"><h1>Upload Scorecard</h1><button class="btn btn-secondary btn-sm" onclick="addView='menu';render()">← Back</button></div>
   <div class="card mb12">
@@ -1121,7 +1159,7 @@ function vAddScorecard(){
     </div>
     <div class="fr">
       <div class="fg"><label>Match Winner</label>
-        <select id="tp-winner"><option value="">— Select Winner —</option>${iplOpts}</select>
+        <select id="tp-winner"><option value="">— Select Winner —</option>${winnerOpts}</select>
       </div>
       <div class="fg"><label>Man of the Match</label><input id="tp-mom" placeholder="e.g. Narine" /></div>
     </div>
@@ -1133,7 +1171,7 @@ function vAddScorecard(){
     <div class="alert al-info mb12 small">Enter stats directly. Players are selected from squad rosters.</div>
     <div class="fr mb12">
       <div class="fg"><label>Match Winner</label>
-        <select id="me-winner"><option value="">— Select Winner —</option>${iplOpts}</select>
+        <select id="me-winner"><option value="">— Select Winner —</option>${winnerOpts}</select>
       </div>
       <div class="fg"><label>Man of the Match</label>
         <input id="me-mom" placeholder="Player name" />
@@ -1773,12 +1811,17 @@ function extractFielding(dismissal,fieldMap){
 function vAddStep2(){
   const sc=pendingSC;
   const allPlayers=[...new Set([...(sc.batting||[]).map(b=>b.name),...(sc.bowling||[]).map(b=>b.name)].filter(Boolean))];
+  const curMatch=S.matches.find(x=>x.id===scorecardMatchId);
+  const playing=getMatchTeams(curMatch);
+  const winnerSelect=playing.length>=2
+    ? `<select id="ewinner">${['',...playing].map(x=>`<option value="${x}" ${x===sc.match?.winner?'selected':''}>${x||'— Select Winner —'}</option>`).join('')}</select>`
+    : `<input id="ewinner" value="${sc.match?.winner||''}" placeholder="e.g. MI" />`;
   return`<div class="fb mb16"><h1>Review Scorecard</h1><button class="btn btn-secondary btn-sm" onclick="clearPending()">← Re-parse</button></div>
   <div class="card mb12">
     <div class="alert al-success mb12">✅ Parsed: ${sc.match?.team1||'?'} vs ${sc.match?.team2||'?'}</div>
     <div class="fr mb12">
       <div class="fg"><label>Match Winner</label>
-        <input id="ewinner" value="${sc.match?.winner||''}" placeholder="e.g. MI" /></div>
+        ${winnerSelect}</div>
       <div class="fg"><label>⭐ Man of the Match</label>
         <select id="emom">
           <option value="">— Select MOM —</option>
@@ -2601,6 +2644,23 @@ function getMatchesSorted(){
   });
 }
 
+// Returns the two IPL teams playing in a match as an array [t1, t2].
+// Prefers stored m.team1/m.team2; falls back to parsing the match name for older matches.
+function getMatchTeams(m){
+  if(!m) return [];
+  const IPL=['MI','CSK','RCB','KKR','PBKS','RR','SRH','DC','GT','LSG'];
+  let t1=m.team1||'', t2=m.team2||'';
+  if(!t1 || !t2){
+    const upper=(m.name||'').toUpperCase();
+    const found=IPL.filter(x=>new RegExp('\\b'+x+'\\b').test(upper));
+    if(found.length>=2){ t1=t1||found[0]; t2=t2||found[1]; }
+  }
+  const out=[];
+  if(t1) out.push(t1);
+  if(t2 && t2!==t1) out.push(t2);
+  return out;
+}
+
 // Returns true if predictions for a match are locked (past start time or completed)
 function isPredictionLocked(m){
   if(!m) return true;
@@ -3251,6 +3311,11 @@ function vPredictions(){
 function predCardInput(m, canInput){
   const startLabel = matchStartLabel(m);
   const currentTeamId = loggedInTeamId;
+  // Only the 2 IPL teams actually playing this match are eligible predictions
+  const playingTeams = getMatchTeams(m);
+  const predOptions = playingTeams.length>=2
+    ? playingTeams.map(x=>`<option>${x}</option>`).join('')
+    : ['MI','CSK','RCB','KKR','PBKS','RR','SRH','DC','GT','LSG'].map(x=>`<option>${x}</option>`).join('');
   return`<div class="card mb12">
     <div class="fb mb12">
       <div class="fc g8">
@@ -3279,7 +3344,7 @@ function predCardInput(m, canInput){
           <td>${p
             ? `<span class="badge b-blue">${p.prediction}</span>${canEditThis?` <button class="btn btn-ghost btn-xs" onclick="clearPred('${t.id}','${m.id}')" title="Clear">✕</button>`:''}`
             : (canEditThis
-                ? `<div class="fc g6"><select id="pi-${t.id}-${m.id}" style="width:90px"><option value="">Pick…</option>${['MI','CSK','RCB','KKR','PBKS','RR','SRH','DC','GT','LSG'].map(x=>`<option>${x}</option>`).join('')}</select><button class="btn btn-secondary btn-xs" onclick="savePred('${t.id}','${m.id}')">Save</button></div>`
+                ? `<div class="fc g6"><select id="pi-${t.id}-${m.id}" style="width:90px"><option value="">Pick…</option>${predOptions}</select><button class="btn btn-secondary btn-xs" onclick="savePred('${t.id}','${m.id}')">Save</button></div>`
                 : `<span class="muted small">—</span>`)
           }</td>
           <td>${m.winner?`<span class="badge ${correct?'b-green':'b-red'}">${m.winner}</span>`:'—'}</td>
@@ -3319,6 +3384,12 @@ async function savePred(tid,mid){
   const pred=el?.value?.trim();
   if(!pred||pred===''){alert('Select a team to predict');return;}
   if(m?.completed){alert('Match already completed — prediction cannot be saved.');return;}
+  // Backend guard: prediction must be one of the 2 IPL teams playing this match
+  const playing=getMatchTeams(m);
+  if(playing.length>=2 && !playing.includes(pred.toUpperCase())){
+    alert(`❌ Invalid prediction. For this match you can only pick ${playing[0]} or ${playing[1]}.`);
+    return;
+  }
   if(!t.predictions)t.predictions={};
   t.predictions[mid]={prediction:pred,savedAt:new Date().toISOString(),savedBy:isAdmin?'admin':'owner'};
   await saveS();render();
