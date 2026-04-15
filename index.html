@@ -440,6 +440,17 @@ let _lastReloadAt = Date.now();
 async function refreshStateFromRemote(){
   // Don't refresh too aggressively
   if(Date.now()-_lastReloadAt < 2000) return;
+  // Skip refresh if admin is mid-scorecard-entry — re-rendering would wipe the textarea
+  // contents the admin is pasting into from Cricbuzz / ESPN in another tab.
+  if(addView==='scorecard' || pendingSC) return;
+  // Skip if any modal is open (e.g. Pick XI, Swap, Edit Squad) — a re-render closes it.
+  if(document.querySelector('.mbackdrop')) return;
+  // Skip if an input/textarea is currently focused (user is typing)
+  const ae=document.activeElement;
+  if(ae && (ae.tagName==='TEXTAREA' || ae.tagName==='INPUT' || ae.tagName==='SELECT')) return;
+  // Skip if the scorecard paste textarea has unsaved content even if it's not focused
+  const sct=document.getElementById('sct');
+  if(sct && sct.value && sct.value.trim().length>0) return;
   _lastReloadAt = Date.now();
   // Preserve current login state across the reload
   const prevAdmin = isAdmin;
@@ -1709,25 +1720,54 @@ function parseCricbuzzText(txt){
   }
 
   // ── PASS 2: detect multi-line bowling ──
-  // Pattern: Name / O / M / R / W / NB / WD / ECO (8 lines)
-  // O is like "4" or "3.2" (can have decimal), M/R/W/NB/WD are integers, ECO is decimal
-  for(let i=0;i<raw.length-7;i++){
+  // First 4 numeric fields after the name are ALWAYS: O, M, R, W (stable across Cricbuzz/ESPN/Cricinfo).
+  // What comes after W varies: could be `NB WD ECO`, `ECO 0s WD NB`, `ECO WD NB`, `ECO 0s NB WD`, etc.
+  // Strategy: collect a run of consecutive numeric lines after the name, verify O/M/R/W look
+  // plausible, then find ECO as the decimal value (X.YZ) anywhere among the remaining fields.
+  const decLike=s=>/^\d+(\.\d{1,2})?$/.test(s.trim()) && s.indexOf('.')>=0;
+  for(let i=0;i<raw.length;i++){
     if(usedLines.has(i)||isSkip(raw[i])||isNumeric(raw[i])) continue;
     const name=cleanPlayerName(raw[i]);
     if(name.length<2) continue;
-    // Check lines i+1..i+7: O M R W NB WD ECO
-    const o=raw[i+1], m=raw[i+2], r=raw[i+3], w=raw[i+4], nb=raw[i+5], wd=raw[i+6], eco=raw[i+7];
-    if(isNumeric(o) && isInt(m) && isInt(r) && isInt(w) && isInt(nb) && isInt(wd) && isNumeric(eco)){
-      // Extra check: overs should be reasonable (0-24), wickets 0-10
-      const oNum=parseFloat(o), wNum=parseInt(w);
-      if(oNum>=0 && oNum<=24 && wNum>=0 && wNum<=10){
-        bowling.push({name,team:'',overs:o,maidens:parseInt(m)||0,wicketMaidens:0,
-          runs:parseInt(r)||0,wickets:wNum,economy:parseFloat(eco)||0,hasHattrick:false});
-        for(let k=i;k<=i+7;k++) usedLines.add(k);
-        i+=7; // skip ahead
-        continue;
+    // Collect up to 10 consecutive numeric lines following the name
+    const numLines=[];
+    for(let j=1;j<=10 && i+j<raw.length;j++){
+      if(usedLines.has(i+j)) break;
+      if(isNumeric(raw[i+j])) numLines.push(raw[i+j]);
+      else break;
+    }
+    if(numLines.length<5) continue; // need at least O M R W + ECO
+    // First 4 must be O M R W
+    const o=numLines[0], m=numLines[1], r=numLines[2], w=numLines[3];
+    if(!isInt(m)||!isInt(r)||!isInt(w)) continue;
+    const oNum=parseFloat(o);
+    const mNum=parseInt(m), rNum=parseInt(r), wNum=parseInt(w);
+    // Plausibility checks for T20/ODI bowling figures
+    if(isNaN(oNum)||oNum<0||oNum>24) continue;
+    if(mNum<0||mNum>6) continue;
+    if(rNum<0||rNum>200) continue;
+    if(wNum<0||wNum>10) continue;
+    // Find ECO: a decimal value like X.YZ among positions 4..end
+    let ecoIdx=-1, ecoVal=0;
+    for(let k=4;k<numLines.length;k++){
+      if(decLike(numLines[k])){
+        const v=parseFloat(numLines[k]);
+        if(!isNaN(v) && v>=0 && v<=40){ ecoIdx=k; ecoVal=v; break; }
       }
     }
+    // Fallback: if no decimal found (rare — integer eco), use last field
+    if(ecoIdx<0){
+      const lastK=numLines.length-1;
+      const v=parseFloat(numLines[lastK]);
+      if(!isNaN(v) && v>=0 && v<=40){ ecoIdx=lastK; ecoVal=v; }
+    }
+    if(ecoIdx<0) continue;
+    // Accept — mark lines used up to and including the ECO line
+    bowling.push({name,team:'',overs:o,maidens:mNum,wicketMaidens:0,
+      runs:rNum,wickets:wNum,economy:ecoVal,hasHattrick:false});
+    const lastLineIdx=i+1+ecoIdx;
+    for(let k=i;k<=lastLineIdx;k++) usedLines.add(k);
+    i=lastLineIdx;
   }
 
   // ── PASS 3: detect multi-line batting ──
@@ -1756,7 +1796,7 @@ function parseCricbuzzText(txt){
     // Case B: name has inline dismissal on same line ("de Kock  c X b Y"), then R B 4s 6s SR
     const inlineDism=nameLine.match(/^(.+?)\s{2,}((?:c\s+|st\s+|b\s+|lbw\b|run\s*out|not\s*out|retired|hit\s*wicket).+)$/i);
     if(inlineDism && i+5<raw.length && isInt(raw[i+1]) && isInt(raw[i+2])){
-      const cleanName=inlineDiscleanPlayerName(m[1]);
+      const cleanName=cleanPlayerName(inlineDism[1]);
       const dismissal=inlineDism[2].trim();
       const isNotOut=/not\s*out/i.test(dismissal);
       const runs=parseInt(raw[i+1])||0;
