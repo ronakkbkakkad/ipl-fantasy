@@ -3240,9 +3240,10 @@ function showSwapModal(tid){
   </div>
   <div id="sw-role-fields" style="display:none">
     <div class="fg"><label>New Captain / VC</label>
+      <div id="sw-current-role" class="muted small mb4"></div>
       <select id="sw-to-role">
         <option value="">— Select player —</option>
-        ${t.players.map(p=>`<option value="${p.name}">${p.name}</option>`).join('')}
+        ${t.players.map(p=>`<option value="${p.name}">${p.name}${p.name===t.currentCaptain?' (current C)':''}${p.name===t.currentVc?' (current VC)':''}</option>`).join('')}
       </select>
     </div>
   </div>
@@ -3257,6 +3258,14 @@ function updateSwapForm(tid){
   const type=document.getElementById('sw-type')?.value;
   document.getElementById('sw-player-fields').style.display=type==='player'?'':'none';
   document.getElementById('sw-role-fields').style.display=type!=='player'?'':'none';
+  // Show who is currently in the role being swapped
+  const t=S.teams.find(x=>x.id===tid);
+  const roleInfo=document.getElementById('sw-current-role');
+  if(roleInfo && t){
+    if(type==='captain') roleInfo.textContent=`Current Captain: ${t.currentCaptain||'None'}`;
+    else if(type==='vc') roleInfo.textContent=`Current VC: ${t.currentVc||'None'}`;
+    else roleInfo.textContent='';
+  }
 }
 
 async function logSwap(tid){
@@ -3266,13 +3275,20 @@ async function logSwap(tid){
   }
   const t=S.teams.find(x=>x.id===tid);if(!t)return;
   const type=document.getElementById('sw-type')?.value;
-  const from=document.getElementById('sw-from')?.value;
+  // For captain/VC swaps, "from" is the CURRENT captain or VC being replaced — not the player-out dropdown
+  const from = type==='captain' ? (t.currentCaptain||'')
+             : type==='vc'      ? (t.currentVc||'')
+             : document.getElementById('sw-from')?.value;
   const to=(type==='player'
     ? document.getElementById('sw-to-select')?.value
     : document.getElementById('sw-to-role')?.value);
   const mid=document.getElementById('sw-match')?.value;
   const isWrong=document.getElementById('sw-wrong')?.checked;
   if(!to){alert(type==='player'?'Select a player to swap in':'Select the new captain/VC');return;}
+  if((type==='captain'||type==='vc') && from===to){
+    alert(`${to} is already the ${type==='captain'?'Captain':'Vice-Captain'}. Pick a different player.`);
+    return;
+  }
   if(!t.swaps)t.swaps={player:0,captain:0,vc:0,history:[]};
 
   // Owner constraint: swap must be for the next upcoming match
