@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>IPL Fantasy League 2026</title>
+<title>IPL Fantasy League</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- Firebase SDK -->
 <script type="module">
@@ -535,15 +535,21 @@ function scoreBatting(b){
   // Not out bonus
   if(notOut){pts+=10;bd.push({l:'Not out +10',p:10,c:'bat'});}
 
-  // Run scoring: 1 run = 1 pt (performance multiplier for centuries applied later in calcPlayerTotal)
+  // Run scoring: 1 run = 1 pt, with multiplier at 100/130/150
   if(runs>0){
-    pts+=runs;
-    bd.push({l:`${runs} runs`,p:runs,c:'bat'});
+    let mult=1;
+    if(runs>=150) mult=4;
+    else if(runs>=130) mult=3;
+    else if(runs>=100) mult=2;
+    const rp=runs*mult;
+    pts+=rp;
+    if(mult>1) bd.push({l:`${runs} runs ×${mult}`,p:rp,c:'bat'});
+    else bd.push({l:`${runs} runs`,p:runs,c:'bat'});
   }
 
-  // Flat batting bonuses (for sub-century scores)
+  // Flat batting bonuses
   let flat=0,fl='';
-  if(runs>=100) flat=0; // century+ handled by performance multiplier
+  if(runs>=100) flat=0; // already handled by multiplier, no additional flat
   else if(runs>=75){flat=50;fl='75-99 bonus +50';}
   else if(runs>=50){flat=30;fl='50-74 bonus +30';}
   else if(runs>=30){flat=20;fl='30-49 bonus +20';}
@@ -570,17 +576,20 @@ function scoreBowling(b){
   const ov=parseOvers(overs);
   let pts=0; const bd=[];
 
-  // Wicket points: 1 wicket = 25 pts (performance multiplier for 5-fers applied later in calcPlayerTotal)
+  // Wicket points: 1 wicket = 25 pts, with multiplier at 5/6/7+
   if(wk>0){
     const base=wk*25;
-    pts+=base;
-    bd.push({l:`${wk} wicket${wk>1?'s':''}`,p:base,c:'bowl'});
-    // Flat bonuses for sub-5-wicket hauls
-    let flat=0;
-    if(wk>=5) flat=0; // 5+ handled by performance multiplier
-    else if(wk>=4){flat=50;bd.push({l:`4W bonus +50`,p:50,c:'bowl'});}
-    else if(wk>=3){flat=30;bd.push({l:`3W bonus +30`,p:30,c:'bowl'});}
-    if(flat>0) pts+=flat;
+    let mult=1, flat=0;
+    if(wk>=7){mult=4;}
+    else if(wk>=6){mult=3;}
+    else if(wk>=5){mult=2;}
+    else if(wk>=4){flat=50;}
+    else if(wk>=3){flat=30;}
+    const wp=base*mult;
+    pts+=wp;
+    if(mult>1) bd.push({l:`${wk} wickets ×${mult}`,p:wp,c:'bowl'});
+    else bd.push({l:`${wk} wicket${wk>1?'s':''}`,p:base,c:'bowl'});
+    if(flat>0){pts+=flat;bd.push({l:`${wk}W bonus +${flat}`,p:flat,c:'bowl'});}
   }
 
   // Maidens
@@ -637,40 +646,15 @@ function calcPlayerTotal(pdata, isC=false, isVC=false, isSuperSub=false){
   if(pdata.batting){const r=scoreBatting(pdata.batting);base+=r.pts;bd.push(...r.bd);}
   if(pdata.bowling){const r=scoreBowling(pdata.bowling);base+=r.pts;bd.push(...r.bd);}
   if(pdata.fielding){const r=scoreFielding(pdata.fielding);base+=r.pts;bd.push(...r.bd);}
-
-  // ── Step 1: Performance multiplier ──
-  // Century (100/130/150) or 5-wicket haul (5/6/7+) multiplies ALL points.
-  // If both apply, use the higher multiplier.
-  let perfMult=1;
-  const batRuns=pdata.batting?.runs||0;
-  const bowlWk=pdata.bowling?.wickets||0;
-  if(batRuns>=150) perfMult=Math.max(perfMult,4);
-  else if(batRuns>=130) perfMult=Math.max(perfMult,3);
-  else if(batRuns>=100) perfMult=Math.max(perfMult,2);
-  if(bowlWk>=7) perfMult=Math.max(perfMult,4);
-  else if(bowlWk>=6) perfMult=Math.max(perfMult,3);
-  else if(bowlWk>=5) perfMult=Math.max(perfMult,2);
-
-  let afterPerf=base;
-  if(perfMult>1){
-    afterPerf=Math.round(base*perfMult);
-    const perfBonus=afterPerf-base;
-    let perfLabel='';
-    if(batRuns>=100 && bowlWk>=5) perfLabel=`🔥 ${batRuns} runs + ${bowlWk}W → ALL pts ×${perfMult}`;
-    else if(batRuns>=100) perfLabel=`💯 Century (${batRuns}) → ALL pts ×${perfMult}`;
-    else perfLabel=`🎳 ${bowlWk}-wicket haul → ALL pts ×${perfMult}`;
-    bd.push({l:perfLabel,p:perfBonus,c:'perf'});
-  }
-
-  // ── Step 2: C / VC / Super Sub multiplier on the performance-adjusted total ──
-  const final=applyRole(afterPerf,isC,isVC,isSuperSub);
-  const roleBonus=final-afterPerf;
-  if(roleBonus!==0){
-    if(isSuperSub&&isC) bd.push({l:'⚡ Super Sub Captain ×4',p:roleBonus,c:'super'});
-    else if(isSuperSub&&isVC) bd.push({l:'⚡ Super Sub VC ×3.5',p:roleBonus,c:'super'});
-    else if(isSuperSub) bd.push({l:'⚡ Super Sub ×3',p:roleBonus,c:'super'});
-    else if(isC) bd.push({l:'Captain ×2',p:roleBonus,c:'role'});
-    else if(isVC) bd.push({l:'VC ×1.5',p:roleBonus,c:'role'});
+  // C/VC/SuperSub multiplier on the entire total (runs×century already baked in, catches/SR/eco/penalties all included)
+  const final=applyRole(base,isC,isVC,isSuperSub);
+  const bonus=final-base;
+  if(bonus!==0){
+    if(isSuperSub&&isC) bd.push({l:'⚡ Super Sub Captain ×4',p:bonus,c:'super'});
+    else if(isSuperSub&&isVC) bd.push({l:'⚡ Super Sub VC ×3.5',p:bonus,c:'super'});
+    else if(isSuperSub) bd.push({l:'⚡ Super Sub ×3',p:bonus,c:'super'});
+    else if(isC) bd.push({l:'Captain ×2',p:bonus,c:'role'});
+    else if(isVC) bd.push({l:'VC ×1.5',p:bonus,c:'role'});
   }
   return{pts:final,bd};
 }
