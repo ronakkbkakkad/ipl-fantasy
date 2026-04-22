@@ -719,11 +719,15 @@ function processTeamMatch(team, sc, matchId){
   const matchCaptain=roster.captain;
   const matchVc=roster.vc;
 
+  const mom=sc.match?.mom;
+  const momLc=mom?mom.toLowerCase().trim():'';
+
   for(const rp of rosterPlayers){
     const bat = findPlayerInScorecard(rp.name, sc.batting);
     const bowl = findPlayerInScorecard(rp.name, sc.bowling);
     const field = findPlayerInScorecard(rp.name, sc.fielding);
-    if(!bat&&!bowl&&!field) continue;
+    const isMom = momLc && rp.name.toLowerCase()===momLc;
+    if(!bat&&!bowl&&!field&&!isMom) continue;
     const pd={};
     if(bat) pd.batting=bat;
     if(bowl) pd.bowling=bowl;
@@ -731,26 +735,34 @@ function processTeamMatch(team, sc, matchId){
     const isC=matchCaptain===rp.name;
     const isVC=matchVc===rp.name;
     const isSuperSub=!!superSubName && rp.name.toLowerCase()===superSubName.toLowerCase();
-    const{pts,bd}=calcPlayerTotal(pd,isC,isVC,isSuperSub);
-    total+=pts;
-    players.push({name:rp.name,isC,isVC,isSuperSub,pts,bd});
-  }
-  const mom=sc.match?.mom;
-  if(mom){
-    const momLc=mom.toLowerCase().trim();
-    const hasMom=rosterPlayers.some(p=>p.name.toLowerCase()===momLc);
-    if(hasMom){
+
+    // Base scoring (bat + bowl + field)
+    let base=0; const bd=[];
+    if(pd.batting){const r=scoreBatting(pd.batting);base+=r.pts;bd.push(...r.bd);}
+    if(pd.bowling){const r=scoreBowling(pd.bowling);base+=r.pts;bd.push(...r.bd);}
+    if(pd.fielding){const r=scoreFielding(pd.fielding);base+=r.pts;bd.push(...r.bd);}
+
+    // MOM bonus folded into the same player entry (before C/VC multiplier)
+    if(isMom){
       const mt=sc._matchType||'league';
-      const baseMp=mt==='final'?100:mt==='semifinal'?75:50;
-      // If MOM is this team's captain → 2x, vice-captain → 1.5x
-      const isMomC = matchCaptain && matchCaptain.toLowerCase()===momLc;
-      const isMomVC = matchVc && matchVc.toLowerCase()===momLc;
-      const mult = isMomC ? 2 : isMomVC ? 1.5 : 1;
-      const mp = Math.round(baseMp*mult);
-      total+=mp;
-      const label = mult===1 ? `MOM (${mt})` : `MOM (${mt}) ×${mult} ${isMomC?'[C]':'[VC]'}`;
-      players.push({name:mom,isC:!!isMomC,isVC:!!isMomVC,isSuperSub:false,pts:mp,bd:[{l:label,p:mp,c:'bonus'}]});
+      const mp=mt==='final'?100:mt==='semifinal'?75:50;
+      base+=mp;
+      bd.push({l:`⭐ MOM (${mt})`,p:mp,c:'bonus'});
     }
+
+    // C/VC/SuperSub multiplier on ENTIRE total (runs×century already baked in + fielding + MOM)
+    const final=applyRole(base,isC,isVC,isSuperSub);
+    const bonus=final-base;
+    if(bonus!==0){
+      if(isSuperSub&&isC) bd.push({l:'⚡ Super Sub Captain ×4',p:bonus,c:'super'});
+      else if(isSuperSub&&isVC) bd.push({l:'⚡ Super Sub VC ×3.5',p:bonus,c:'super'});
+      else if(isSuperSub) bd.push({l:'⚡ Super Sub ×3',p:bonus,c:'super'});
+      else if(isC) bd.push({l:'Captain ×2',p:bonus,c:'role'});
+      else if(isVC) bd.push({l:'VC ×1.5',p:bonus,c:'role'});
+    }
+
+    total+=final;
+    players.push({name:rp.name,isC,isVC,isSuperSub,pts:final,bd});
   }
   const pred=team.predictions?.[matchId];
   if(pred && pred.prediction && pred.correct!==undefined){
