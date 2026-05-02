@@ -1101,7 +1101,7 @@ function vAddMenu(){
     <div class="fb">
       <div>
         <h2 style="color:var(--red)">🔄 Season Reset</h2>
-        <p class="muted small" style="margin-top:4px">End the current season and start fresh. Deletes all matches, scores, predictions, swaps, and awards.<br/>Teams and squad players are kept — you only need to re-pick XIs.</p>
+        <p class="muted small" style="margin-top:4px">End the current season and start fresh. Deletes all matches, scores, squads, predictions, swaps, and awards.<br/>Only team names, owners, passwords, and IPL assignments are kept.</p>
       </div>
       <button class="btn btn-danger" onclick="resetSeason()">Reset Season</button>
     </div>
@@ -2814,6 +2814,7 @@ function teamCard(t){
         <span class="hl" style="font-weight:700">${tot} pts</span>
         ${isAdmin&&mySquad.length?`<button class="btn btn-secondary btn-sm" onclick="showPickXI('${t.id}')">${t.players.length===11?'✏️ Edit XI':'🎯 Pick XI'}</button>`:''}
         ${isAdmin&&t.players.length?`<button class="btn btn-danger btn-sm" onclick="clearTeamXI('${t.id}')">🗑️ Clear XI</button>`:''}
+        ${isAdmin&&mySquad.length?`<button class="btn btn-danger btn-sm" onclick="clearTeamSquad('${t.id}')">🗑️ Clear Squad</button>`:''}
         ${isAdmin?`<button class="btn btn-ghost btn-sm" onclick="showEditIplTeam('${t.id}')">✏️ IPL</button>`:''}
         ${isAdmin?`<button class="btn btn-ghost btn-sm" onclick="showEditTeamPw('${t.id}')">🔑 Pw</button>`:''}
         ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="delTeam('${t.id}')">Delete</button>`:''}
@@ -3092,6 +3093,22 @@ async function clearTeamXI(tid){
   alert(`✅ ${t.name}'s XI has been cleared. Use "Pick XI" to select fresh players from the squad.`);
 }
 
+async function clearTeamSquad(tid){
+  if(!checkAdmin('clear team squad')) return;
+  const t=S.teams.find(x=>x.id===tid);if(!t)return;
+  const mySquad=(S.squad||[]).filter(p=>p.ownerTeam===t.name);
+  if(!mySquad.length){alert('Squad is already empty.');return;}
+  if(!confirm(`Remove ALL ${mySquad.length} squad players owned by ${t.name}?\n\nThis also clears the Playing XI, Captain, and VC.\nThis action cannot be undone.`)) return;
+  // Remove all squad players belonging to this team
+  S.squad=(S.squad||[]).filter(p=>p.ownerTeam!==t.name);
+  // Clear XI as well since those players no longer exist
+  t.players=[];
+  t.currentCaptain=null;
+  t.currentVc=null;
+  await saveS();render();
+  alert(`✅ ${t.name}'s squad (${mySquad.length} players) and XI have been cleared.`);
+}
+
 async function resetSeason(){
   if(!checkAdmin('reset season')) return;
 
@@ -3106,11 +3123,12 @@ async function resetSeason(){
     `This will PERMANENTLY delete:\n` +
     `• ${completedCount} completed matches (${matchCount} total)\n` +
     `• All scores, predictions, and match data\n` +
+    `• All ${squadCount} squad players across all teams\n` +
+    `• All Playing XIs, Captains, and Vice-Captains\n` +
     `• All swap histories for ${teamCount} teams\n` +
     `• All season awards\n\n` +
     `This will KEEP:\n` +
     `• ${teamCount} teams (names, owners, passwords)\n` +
-    `• ${squadCount} squad players\n` +
     `• Team IPL assignments\n\n` +
     `Are you sure you want to continue?`
   )) return;
@@ -3130,7 +3148,10 @@ async function resetSeason(){
   // Clear all matches
   S.matches=[];
 
-  // Reset each team's match-related data but keep identity + squad
+  // Clear entire squad pool
+  S.squad=[];
+
+  // Reset each team's match-related data but keep identity
   for(const t of S.teams){
     t.players=[];            // Clear XI
     t.currentCaptain=null;
@@ -3145,7 +3166,7 @@ async function resetSeason(){
 
   await saveS();
   render();
-  alert(`🔄 Season has been reset!\n\n${teamCount} teams retained with their squads.\nAll matches, scores, predictions, swaps, and awards have been cleared.\n\nYou can now pick fresh XIs and start the new season.`);
+  alert(`🔄 Season has been reset!\n\n${teamCount} teams retained (names, owners, passwords, IPL teams).\nAll matches, scores, squads, predictions, swaps, and awards have been cleared.\n\nImport new squads and pick XIs to start the new season.`);
 }
 
 function showAddTeam(){
