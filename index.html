@@ -839,11 +839,13 @@ function vLeaderboard(){
     .map(t=>({...t,tot:teamTotal(t),played:S.matches.filter(m=>m.teamScores?.[t.id]).length}))
     .sort((a,b)=>b.tot-a.tot);
 
+  const completedCount=getMatchesSorted().filter(m=>m.completed).length;
+
   return `
-  <div class="fb mb16"><h1>🏆 Leaderboard</h1><span class="muted small">${S.matches.length} matches played</span></div>
+  <div class="fb mb16"><h1>🏆 Leaderboard</h1><span class="muted small">${completedCount} matches played</span></div>
   <div class="stats-grid">
     <div class="stat-card"><div class="val">${S.teams.length}</div><div class="lbl">Teams</div></div>
-    <div class="stat-card"><div class="val">${S.matches.length}</div><div class="lbl">Matches</div></div>
+    <div class="stat-card"><div class="val">${completedCount}</div><div class="lbl">Matches</div></div>
     <div class="stat-card"><div class="val">${ranked[0]?.tot||0}</div><div class="lbl">Top Score</div></div>
     <div class="stat-card"><div class="val" style="font-size:15px">${ranked[0]?.name||'—'}</div><div class="lbl">Leader</div></div>
   </div>
@@ -869,11 +871,12 @@ function vLeaderboard(){
       </tbody>
     </table></div>
   </div>
-  ${S.matches.length?lastMatchWidget():''}`;
+  ${completedCount?lastMatchWidget():''}`;
 }
 
 function lastMatchWidget(){
-  const m=S.matches[S.matches.length-1]; if(!m) return '';
+  const completed=getMatchesSorted().filter(m=>m.completed);
+  const m=completed[completed.length-1]; if(!m) return '';
   const sc=Object.entries(m.teamScores||{}).map(([id,s])=>({team:S.teams.find(t=>t.id===id),s})).filter(x=>x.team).sort((a,b)=>b.s.total-a.s.total);
   return`<div class="card"><div class="fb mb12"><h2>Last: ${m.name}</h2><span class="badge b-blue">${m.date||''}</span></div>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">
