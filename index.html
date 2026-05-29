@@ -744,7 +744,7 @@ function processTeamMatch(team, sc, matchId){
 
     // MOM bonus folded into the same player entry (before C/VC multiplier)
     if(isMom){
-      const mt=sc._matchType||'league';
+      const mt=match?.type||'league';
       const mp=mt==='final'?100:mt==='semifinal'?75:50;
       base+=mp;
       bd.push({l:`⭐ MOM (${mt})`,p:mp,c:'bonus'});
